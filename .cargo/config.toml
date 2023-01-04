@@ -1,0 +1,6 @@
+[target.'cfg(target_os = "linux"']
+rustflags = ["-C", "link-arg=-nostartfiles"]
+
+[unstable]
+build-std-features = ["compiler-builtins-mem"]
+build-std = ["core", "compiler_builtins"]
