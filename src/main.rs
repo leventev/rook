@@ -1,11 +1,16 @@
 #![no_std]
 #![no_main]
+#![feature(core_intrinsics)]
+#![feature(default_free_fn)]
 
+#[macro_use]
 mod io;
+pub mod mm;
 
-use limine::LimineBootInfoRequest;
+use limine::{LimineBootInfoRequest, LimineMemmapRequest};
 
 static BOOTLOADER_INFO: LimineBootInfoRequest = LimineBootInfoRequest::new(0);
+static MMAP_INFO: LimineMemmapRequest = LimineMemmapRequest::new(0);
 
 /// Kernel Entry Point
 ///
@@ -23,6 +28,13 @@ pub extern "C" fn _start() -> ! {
             bootinfo.version.to_str().unwrap().to_str().unwrap(),
         );
     }
+
+    mm::phys::init(
+        MMAP_INFO
+            .get_response()
+            .get()
+            .expect("Memory map request failed"),
+    );
 
     hcf();
 }

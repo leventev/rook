@@ -3,7 +3,7 @@ QEMUFLAGS := -m 128M -serial stdio -vga std -no-reboot -no-shutdown
 
 IMAGE=bin/image.iso
 
-all: image
+all: $(IMAGE)
 
 build:
 	cargo build $(RUSTFLAGS)
