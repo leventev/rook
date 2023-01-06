@@ -2,6 +2,8 @@ use limine::{LimineMemmapResponse, LimineMemoryMapEntryType};
 
 use spin::Mutex;
 
+use crate::mm::PhysAddr;
+
 const MAX_SEGMENT_COUNT: usize = 16;
 // 16 GiB
 const MAX_PAGES: usize = (16 * 1024 * 1024 * 1024) / 4096;
@@ -80,7 +82,7 @@ impl PhysAllocator {
 
         self.print_available_memory();
     }
-    
+
     fn print_available_memory(&self) {
         let mut kib = (self.total_pages * 4096) / 1024;
         let mib = kib / 1024;
@@ -118,7 +120,7 @@ impl PhysAllocator {
         None
     }
 
-    pub fn alloc(&mut self) -> usize {
+    pub fn alloc(&mut self) -> PhysAddr {
         for seg_idx in 0..self.segment_count {
             let local_bitmap_idx = match self.find_free_bitmap(seg_idx) {
                 Some(x) => x,
@@ -138,7 +140,7 @@ impl PhysAllocator {
                 self.bitmap[global_bitmap_idx] |= 1 << bitmap_off;
 
                 let local_page_idx = local_bitmap_idx * PAGES_PER_BITMAP + bitmap_off;
-                return segment.base + local_page_idx * 4096;
+                return PhysAddr::new((segment.base + local_page_idx * 4096) as u64);
             }
         }
 
@@ -163,7 +165,7 @@ pub fn init(memmap: &LimineMemmapResponse) {
     allocator.init(memmap);
 }
 
-pub fn alloc() -> usize {
+pub fn alloc() -> PhysAddr {
     let mut allocator = PHYS_ALLOCATOR.lock();
-    return allocator.alloc();
+    allocator.alloc()
 }

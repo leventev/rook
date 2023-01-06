@@ -1,11 +1,21 @@
-RUSTFLAGS=--target x86_64-ruke.json
+RUSTFLAGS := --target x86_64-ruke.json
 QEMUFLAGS := -m 128M -serial stdio -vga std -no-reboot -no-shutdown
 
-IMAGE=bin/image.iso
+ASFLAGS := -felf64 -g
+
+IMAGE := bin/image.iso
+
+BUILDDIR := bin
+
+ASMSRC := $(shell find src -name "*.s")
+ASMOBJ := $(ASMSRC:.s=.o)
 
 all: $(IMAGE)
 
-build:
+%.o: %.s
+	nasm $(ASFLAGS) $< -o $(addprefix $(BUILDDIR)/,$(notdir $@))
+
+build: $(ASMOBJ)
 	cargo build $(RUSTFLAGS)
 
 $(IMAGE): build

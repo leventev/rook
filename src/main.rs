@@ -2,15 +2,18 @@
 #![no_main]
 #![feature(core_intrinsics)]
 #![feature(default_free_fn)]
+#![allow(dead_code)]
 
 #[macro_use]
 mod io;
-pub mod mm;
+mod arch;
+mod mm;
 
-use limine::{LimineBootInfoRequest, LimineMemmapRequest};
+use limine::{LimineBootInfoRequest, LimineHhdmRequest, LimineMemmapRequest};
 
 static BOOTLOADER_INFO: LimineBootInfoRequest = LimineBootInfoRequest::new(0);
 static MMAP_INFO: LimineMemmapRequest = LimineMemmapRequest::new(0);
+static HHDM_INFO: LimineHhdmRequest = LimineHhdmRequest::new(0);
 
 /// Kernel Entry Point
 ///
@@ -35,6 +38,15 @@ pub extern "C" fn _start() -> ! {
             .get()
             .expect("Memory map request failed"),
     );
+
+    let hhdm = HHDM_INFO
+        .get_response()
+        .get()
+        .expect("HHDM request failed")
+        .offset;
+
+    mm::virt::init(hhdm);
+    mm::virt::dump_pml4();
 
     hcf();
 }
