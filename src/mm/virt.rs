@@ -10,8 +10,6 @@ const PAGE_KERNEL_PML4_INDEX: u64 = 511;
 const VIRT_MANAGER_PML4_INDEX: u64 = 509;
 const RECURSIVE_PML4_INDEX: u64 = 510;
 
-const VIRT_MANAGER_ADDR: VirtAddr = VirtAddr::new(0xfffffe8000000000);
-
 // TODO: support other arches, and abstract all virtual memory operations
 struct VirtualMemoryManager {
     pml4_phys: PhysAddr,
@@ -33,8 +31,6 @@ impl VirtualMemoryManager {
             self.pml4_phys.get() | (PageFlags::READ_WRITE | PageFlags::PRESENT).bits();
 
         self.initialized = true;
-
-        self.map(VIRT_MANAGER_ADDR, self.pml4_phys, PageFlags::READ_WRITE);
     }
 
     /// Generates a memory address that can be used to access a page table
@@ -78,7 +74,6 @@ impl VirtualMemoryManager {
             if ent == 0 {
                 continue;
             }
-            println!("{}: {:#x}", i, ent);
         }
     }
 
@@ -173,7 +168,14 @@ impl VirtualMemoryManager {
         let mut ent = self.get_pml4(index);
         if ent == 0 {
             let phys = phys::alloc();
-            ent = self.map_pml4(index, phys, PageFlags::READ_WRITE);
+            ent = self.map_pml4(index, phys, PageFlags::READ_WRITE | PageFlags::PRESENT);
+
+            if cfg!(vmm_debug) {
+                println!(
+                    "VMM: pml4 entry({}) was empty, allocated a new frame: {}",
+                    index, phys
+                );
+            }
         }
         ent
     }
@@ -205,7 +207,19 @@ impl VirtualMemoryManager {
         let mut ent = self.get_pml3(pml4_index, index);
         if ent == 0 {
             let phys = phys::alloc();
-            ent = self.map_pml3(pml4_index, index, phys, PageFlags::READ_WRITE);
+            ent = self.map_pml3(
+                pml4_index,
+                index,
+                phys,
+                PageFlags::READ_WRITE | PageFlags::PRESENT,
+            );
+
+            if cfg!(vmm_debug) {
+                println!(
+                    "VMM: pml3 entry({}/{}) was empty, allocated a new frame: {}",
+                    pml4_index, index, phys
+                );
+            }
         }
         ent
     }
@@ -244,7 +258,20 @@ impl VirtualMemoryManager {
         let mut ent = self.get_pml2(pml4_index, pml3_index, index);
         if ent == 0 {
             let phys = phys::alloc();
-            ent = self.map_pml2(pml4_index, pml3_index, index, phys, PageFlags::READ_WRITE);
+            ent = self.map_pml2(
+                pml4_index,
+                pml3_index,
+                index,
+                phys,
+                PageFlags::READ_WRITE | PageFlags::PRESENT,
+            );
+
+            if cfg!(vmm_debug) {
+                println!(
+                    "VMM: pml2 entry({}/{}/{}) was empty, allocated a new frame: {}",
+                    pml4_index, pml3_index, index, phys
+                );
+            }
         }
         ent
     }
@@ -296,8 +323,15 @@ impl VirtualMemoryManager {
                 pml2_index,
                 index,
                 phys,
-                PageFlags::READ_WRITE,
+                PageFlags::READ_WRITE | PageFlags::PRESENT,
             );
+
+            if cfg!(vmm_debug) {
+                println!(
+                    "VMM: pml1 entry({}/{}/{}/{}) was empty, allocated a new frame: {}",
+                    pml4_index, pml3_index, pml2_index, index, phys
+                );
+            }
         }
         ent
     }
@@ -323,7 +357,6 @@ impl VirtualMemoryManager {
         let page = self.get_pml1(pml4_idx, pml3_idx, pml2_idx, pml1_idx);
         assert!(page == 0, "Trying to map already mapped page!");
 
-        let phys = phys::alloc();
         self.map_pml1(
             pml4_idx,
             pml3_idx,
@@ -332,6 +365,13 @@ impl VirtualMemoryManager {
             phys,
             flags | PageFlags::PRESENT,
         );
+
+        if cfg!(vmm_debug) {
+            println!(
+                "VMM: mapped Virt {} -> Phys {} with flags {:?}",
+                virt, phys, flags
+            );
+        }
     }
 
     /// This function unmaps a page in virtual memory
@@ -372,6 +412,10 @@ impl VirtualMemoryManager {
             PhysAddr::zero(),
             PageFlags::NONE,
         );
+
+        if cfg!(vmm_debug) {
+            println!("VMM: unmapped Virt {}", virt);
+        }
     }
 }
 
@@ -393,4 +437,14 @@ pub fn init(hhdm: u64) {
 pub fn dump_pml4() {
     let vmm = VIRTUAL_MEMORY_MANAGER.lock();
     vmm.dump_pml4();
+}
+
+pub fn map(virt: VirtAddr, phys: PhysAddr, flags: PageFlags) {
+    let vmm = VIRTUAL_MEMORY_MANAGER.lock();
+    vmm.map(virt, phys, flags);
+}
+
+pub fn unmap(virt: VirtAddr) {
+    let vmm = VIRTUAL_MEMORY_MANAGER.lock();
+    vmm.unmap(virt);
 }

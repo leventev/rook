@@ -6,14 +6,15 @@ use crate::mm::PhysAddr;
 
 const MAX_SEGMENT_COUNT: usize = 16;
 // 16 GiB
-const MAX_PAGES: usize = (16 * 1024 * 1024 * 1024) / 4096;
-const PAGES_PER_BITMAP: usize = core::mem::size_of::<usize>() * 8;
-const BITMAP_SIZE: usize = MAX_PAGES / PAGES_PER_BITMAP;
+const FRAME_SIZE: usize = 4096;
+const MAX_FRAMES: usize = (16 * 1024 * 1024 * 1024) / FRAME_SIZE;
+const FRAMES_PER_BITMAP: usize = core::mem::size_of::<usize>() * 8;
+const BITMAP_SIZE: usize = MAX_FRAMES / FRAMES_PER_BITMAP;
 
 #[derive(Clone, Copy)]
 struct PhysSegment {
     base: usize,
-    len: usize, // in pages
+    len: usize, // in frames
     global_bitmap_base: usize,
     lowest_idx: usize,
 }
@@ -33,8 +34,8 @@ struct PhysAllocator {
     segments: [PhysSegment; MAX_SEGMENT_COUNT],
     segment_count: usize,
     bitmap: [usize; BITMAP_SIZE],
-    total_pages: usize,
-    used_pages: usize,
+    total_frames: usize,
+    used_frames: usize,
 }
 
 impl PhysAllocator {
@@ -57,34 +58,34 @@ impl PhysAllocator {
                 continue;
             }
 
-            assert!(entry.base % 4096 == 0);
-            let pages = (entry.len / 4096) as usize;
+            assert!(entry.base % FRAME_SIZE as u64 == 0);
+            let frames = (entry.len / FRAME_SIZE as u64) as usize;
             self.segments[self.segment_count] = PhysSegment {
                 base: entry.base as usize,
-                len: pages,
+                len: frames,
                 global_bitmap_base: bitmap_base,
                 lowest_idx: 0,
             };
 
             self.segment_count += 1;
-            self.total_pages += pages;
+            self.total_frames += frames;
 
-            bitmap_base += pages / PAGES_PER_BITMAP;
-            let rem_pages = pages % PAGES_PER_BITMAP;
+            bitmap_base += frames / FRAMES_PER_BITMAP;
+            let rem_frames = frames % FRAMES_PER_BITMAP;
             // sometimes the last isn't filled completely, so we mark the
             // unusable bits as allocated
-            if rem_pages != 0 {
-                self.bitmap[bitmap_base] = usize::MAX << rem_pages;
+            if rem_frames != 0 {
+                self.bitmap[bitmap_base] = usize::MAX << rem_frames;
                 bitmap_base += 1;
             }
         }
-        self.used_pages = self.total_pages;
+        self.used_frames = self.total_frames;
 
         self.print_available_memory();
     }
 
     fn print_available_memory(&self) {
-        let mut kib = (self.total_pages * 4096) / 1024;
+        let mut kib = (self.total_frames * FRAME_SIZE) / 1024;
         let mib = kib / 1024;
         kib -= mib * 1024;
         println!("available system memory: {} MiB {} KiB", mib, kib);
@@ -95,21 +96,21 @@ impl PhysAllocator {
     fn find_free_bitmap(&self, segment_idx: usize) -> Option<usize> {
         let segment = self.segments[segment_idx];
 
-        // calculate how many pages are in a single bitmap,
+        // calculate how many frames are in a single bitmap,
         // on 32bit this is 32
         // on 64bit this is 64
-        let bitmap_rem = segment.len % PAGES_PER_BITMAP;
+        let bitmap_rem = segment.len % FRAMES_PER_BITMAP;
         let bitmap_count = if bitmap_rem == 0 {
-            segment.len / PAGES_PER_BITMAP
+            segment.len / FRAMES_PER_BITMAP
         } else {
-            segment.len / PAGES_PER_BITMAP + 1
+            segment.len / FRAMES_PER_BITMAP + 1
         };
 
         for bitmap_idx in 0..bitmap_count {
             let global_bitmap_idx = segment.global_bitmap_base + bitmap_idx;
             let bitmap = self.bitmap[global_bitmap_idx];
 
-            // if all the pages in the bitmap are set continue
+            // if all the frames in the bitmap are set continue
             if bitmap == usize::MAX {
                 continue;
             }
@@ -130,17 +131,26 @@ impl PhysAllocator {
             let segment = self.segments[seg_idx];
             let global_bitmap_idx = segment.global_bitmap_base + local_bitmap_idx;
 
-            for bitmap_off in segment.lowest_idx..PAGES_PER_BITMAP {
-                // if the page at bitmap_off is set then keep searching
+            for bitmap_off in segment.lowest_idx..FRAMES_PER_BITMAP {
+                // if the frame at bitmap_off is set then keep searching
                 if self.bitmap[global_bitmap_idx] & (1 << bitmap_off) > 0 {
                     continue;
                 }
 
-                // mark the page as allocated
+                // mark the frame as allocated
                 self.bitmap[global_bitmap_idx] |= 1 << bitmap_off;
 
-                let local_page_idx = local_bitmap_idx * PAGES_PER_BITMAP + bitmap_off;
-                return PhysAddr::new((segment.base + local_page_idx * 4096) as u64);
+                let local_frame_idx = local_bitmap_idx * FRAMES_PER_BITMAP + bitmap_off;
+                let addr = PhysAddr::new((segment.base + local_frame_idx * FRAME_SIZE) as u64);
+
+                if cfg!(pfa_debug) {
+                    println!(
+                        "PFA: allocated physical page {} segment: {} local index: {}",
+                        addr, seg_idx, local_frame_idx
+                    );
+                }
+
+                return addr;
             }
         }
 
@@ -152,8 +162,8 @@ impl PhysAllocator {
             segments: [PhysSegment::new(); MAX_SEGMENT_COUNT],
             segment_count: 0,
             bitmap: [0; BITMAP_SIZE],
-            total_pages: 0,
-            used_pages: 0,
+            total_frames: 0,
+            used_frames: 0,
         }
     }
 }

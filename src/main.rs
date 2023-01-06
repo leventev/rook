@@ -3,12 +3,16 @@
 #![feature(core_intrinsics)]
 #![feature(default_free_fn)]
 #![allow(dead_code)]
+#![feature(alloc_error_handler)]
+
+extern crate alloc;
 
 #[macro_use]
 mod io;
 mod arch;
 mod mm;
 
+use alloc::boxed;
 use limine::{LimineBootInfoRequest, LimineHhdmRequest, LimineMemmapRequest};
 
 static BOOTLOADER_INFO: LimineBootInfoRequest = LimineBootInfoRequest::new(0);
@@ -45,8 +49,16 @@ pub extern "C" fn _start() -> ! {
         .expect("HHDM request failed")
         .offset;
 
+    if cfg!(vmm_debug) {
+        println!("AOIDSGFIUYADGUIADSIUG");
+    }
+
     mm::virt::init(hhdm);
     mm::virt::dump_pml4();
+    mm::kalloc::init();
+
+    let b = boxed::Box::new(21);
+    println!("{}", b.as_ref());
 
     hcf();
 }

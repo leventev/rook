@@ -1,5 +1,6 @@
 pub mod phys;
 pub mod virt;
+pub mod kalloc;
 
 use core::{fmt, ops};
 

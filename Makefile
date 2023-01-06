@@ -1,5 +1,5 @@
 RUSTFLAGS := --target x86_64-ruke.json
-QEMUFLAGS := -m 128M -serial stdio -vga std -no-reboot -no-shutdown
+QEMUFLAGS := -m 128M -d int -serial stdio -vga std -no-reboot -no-shutdown
 
 ASFLAGS := -felf64 -g
 
