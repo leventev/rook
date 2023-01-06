@@ -5,7 +5,7 @@ make -C limine
 mkdir -p iso_root
 mkdir -p bin
 
-cp -v target/x86_64-ruke/debug/ruke conf/limine.cfg limine/limine.sys \
+cp -v target/x86_64-rook/debug/rook conf/limine.cfg limine/limine.sys \
     limine/limine-cd.bin limine/limine-cd-efi.bin iso_root
 
 xorriso -as mkisofs -b limine-cd.bin \

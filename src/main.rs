@@ -26,7 +26,7 @@ static HHDM_INFO: LimineHhdmRequest = LimineHhdmRequest::new(0);
 /// the bootloader will transfer control to this function.
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
-    println!("hello, world Ruke!");
+    println!("hello, world Rook!");
 
     if let Some(bootinfo) = BOOTLOADER_INFO.get_response().get() {
         println!(
