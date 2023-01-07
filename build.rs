@@ -1,12 +1,21 @@
-use std::{env, error::Error};
+use std::{env, error::Error, collections::HashMap};
 
 const ASM_OBJ_FILES: &'static [&str] = &["x86_64.o"];
 
 fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
-    // Get the name of the package.
+    let mut debug_flags: HashMap<&str, bool> = HashMap::new();
+    // to enable a flag just simply replace the false with a true
+    debug_flags.insert("vmm_debug", false);
+    debug_flags.insert("pfa_debug", false);
+    debug_flags.insert("kalloc_debug", false);
+
+    for (flag, enabled) in debug_flags {
+        if !enabled { continue; }
+        println!("cargo:rustc-cfg={}", flag);
+    }
+
     let kernel_name = env::var("CARGO_PKG_NAME")?;
 
-    // Tell rustc to pass the linker script to the linker.
     println!("cargo:rustc-link-arg-bin={kernel_name}=--script=conf/linker.ld");
     for obj in ASM_OBJ_FILES {
         println!("cargo:rustc-link-arg-bin={kernel_name}=bin/{obj}");
