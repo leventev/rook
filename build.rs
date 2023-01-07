@@ -1,6 +1,6 @@
 use std::{env, error::Error, collections::HashMap};
 
-const ASM_OBJ_FILES: &'static [&str] = &["x86_64.o"];
+const ASM_OBJ_FILES: &'static [&str] = &["x86_64.o", "exception.o", "idt.o"];
 
 fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     let mut debug_flags: HashMap<&str, bool> = HashMap::new();

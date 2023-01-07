@@ -4,6 +4,7 @@
 #![feature(default_free_fn)]
 #![allow(dead_code)]
 #![feature(alloc_error_handler)]
+#![feature(generic_arg_infer)]
 
 extern crate alloc;
 
@@ -14,6 +15,8 @@ mod mm;
 
 use alloc::{boxed::{self, Box}, vec::Vec};
 use limine::{LimineBootInfoRequest, LimineHhdmRequest, LimineMemmapRequest};
+
+use crate::arch::x86_64::idt;
 
 static BOOTLOADER_INFO: LimineBootInfoRequest = LimineBootInfoRequest::new(0);
 static MMAP_INFO: LimineMemmapRequest = LimineMemmapRequest::new(0);
@@ -52,6 +55,8 @@ pub extern "C" fn _start() -> ! {
     mm::virt::init(hhdm);
     mm::virt::dump_pml4();
     mm::kalloc::init();
+
+    idt::init();
 
     hcf();
 }

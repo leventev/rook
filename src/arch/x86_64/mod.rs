@@ -1,4 +1,6 @@
 pub mod paging;
+pub mod idt;
+pub mod exception;
 
 extern "C" {
     #[link_name = "x86_64_get_cr3"]
