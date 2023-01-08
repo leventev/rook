@@ -41,7 +41,7 @@ pub fn outl(port: u16, val: u32) {
 pub fn inb(port: u16) -> u8 {
     let val: u8;
     unsafe {
-        asm!("in dx, al", in("dx") port, out("al") val, options(nostack, nomem));
+        asm!("in al, dx", out("al") val, in("dx") port, options(nostack, nomem));
     }
     val
 }
@@ -50,7 +50,7 @@ pub fn inb(port: u16) -> u8 {
 pub fn inw(port: u16) -> u16 {
     let val: u16;
     unsafe {
-        asm!("in dx, ax", in("dx") port, out("ax") val, options(nostack, nomem));
+        asm!("in ax, dx", out("ax") val, in("dx") port, options(nostack, nomem));
     }
     val
 }
@@ -59,7 +59,17 @@ pub fn inw(port: u16) -> u16 {
 pub fn inl(port: u16) -> u32 {
     let val: u32;
     unsafe {
-        asm!("in dx, eax", in("dx") port, out("eax") val, options(nostack, nomem));
+        asm!("in eax, dx", out("eax") val, in("dx") port, options(nostack, nomem));
     }
     val
+}
+
+#[inline]
+pub fn enable_interrupts() {
+    unsafe { asm!("sti"); }
+}
+
+#[inline]
+pub fn disable_interrupts() {
+    unsafe { asm!("cli"); }
 }

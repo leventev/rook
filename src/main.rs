@@ -11,16 +11,20 @@ extern crate alloc;
 #[macro_use]
 mod io;
 mod arch;
+mod drivers;
 mod mm;
+mod time;
 
-use alloc::{boxed::{self, Box}, vec::Vec};
-use limine::{LimineBootInfoRequest, LimineHhdmRequest, LimineMemmapRequest};
+use limine::{
+    LimineBootInfoRequest, LimineBootTimeRequest, LimineHhdmRequest, LimineMemmapRequest,
+};
 
-use crate::arch::x86_64::{idt, pic};
+use crate::arch::x86_64::{disable_interrupts, enable_interrupts, idt, pic};
 
 static BOOTLOADER_INFO: LimineBootInfoRequest = LimineBootInfoRequest::new(0);
 static MMAP_INFO: LimineMemmapRequest = LimineMemmapRequest::new(0);
 static HHDM_INFO: LimineHhdmRequest = LimineHhdmRequest::new(0);
+static BOOT_TIME_INFO: LimineBootTimeRequest = LimineBootTimeRequest::new(0);
 
 /// Kernel Entry Point
 ///
@@ -54,13 +58,21 @@ pub extern "C" fn _start() -> ! {
 
     mm::virt::init(hhdm);
     mm::virt::dump_pml4();
-    mm::kalloc::init();
 
     idt::init();
     pic::init();
 
+    let boot_time = BOOT_TIME_INFO
+        .get_response()
+        .get()
+        .expect("BOOT TIME request failed")
+        .boot_time;
 
-    
+    time::init(boot_time as u64);
+    drivers::pit::init();
+
+    mm::kalloc::init();
+
     hcf();
 }
 

@@ -1,5 +1,4 @@
-use super::{inb, outb};
-use core::arch::asm;
+use super::{inb, outb, idt};
 
 const PIC1_COMMAND: u16 = 0x20;
 const PIC1_DATA: u16 = 0x21;
@@ -19,6 +18,8 @@ const ICW4_BUF_MASTER: u8 = 0x0C;
 const ICW4_SFNM: u8 = 0x10;
 
 const PIC_EOI: u8 = 0x20;
+
+const IDT_IRQ_BASE: usize = 32;
 
 fn io_wait() {
     outb(0x80, 0);
@@ -89,4 +90,18 @@ pub fn clear_irq(irq: u8) {
 
     let mask = inb(port) & !(1 << irq_num);
     outb(port, mask);
+}
+
+pub fn send_irq_eoi(irq: u8) {
+    let port = if irq >= 8 {
+        PIC2_COMMAND
+    } else {
+        PIC1_COMMAND
+    };
+    outb(port, PIC_EOI);
+}
+
+pub fn install_irq_handler(irq: u8, handler: u64) {
+    assert!(irq < 16);
+    idt::install_interrupt_handler(IDT_IRQ_BASE + irq as usize, handler);
 }
