@@ -1,10 +1,6 @@
-use spin::Mutex;
-
 const IDT_ENTRIES: usize = 256;
 
-use crate::arch::x86_64::exception::*;
-
-use super::exception;
+use super::exception::*;
 
 #[derive(Clone, Copy)]
 #[repr(C, packed)]

@@ -1,7 +1,6 @@
 use core::{
     alloc::{GlobalAlloc, Layout},
     mem,
-    ptr::{null, null_mut},
 };
 use spin::Mutex;
 
@@ -39,7 +38,7 @@ impl KernelAllocator {
 }
 
 unsafe impl GlobalAlloc for KernelAllocator {
-    unsafe fn alloc(&self, layout: core::alloc::Layout) -> *mut u8 {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         let mut data = KERNEL_ALLOCATOR_DATA.lock();
         assert!(data.initialized);
 
@@ -187,7 +186,7 @@ unsafe impl GlobalAlloc for KernelAllocator {
         panic!("OUT OF MEMORY");
     }
 
-    unsafe fn dealloc(&self, ptr: *mut u8, layout: core::alloc::Layout) {
+    unsafe fn dealloc(&self, ptr: *mut u8, _layout: core::alloc::Layout) {
         let mut data = KERNEL_ALLOCATOR_DATA.lock();
         assert!(data.initialized);
 

@@ -16,7 +16,7 @@ mod mm;
 use alloc::{boxed::{self, Box}, vec::Vec};
 use limine::{LimineBootInfoRequest, LimineHhdmRequest, LimineMemmapRequest};
 
-use crate::arch::x86_64::idt;
+use crate::arch::x86_64::{idt, pic};
 
 static BOOTLOADER_INFO: LimineBootInfoRequest = LimineBootInfoRequest::new(0);
 static MMAP_INFO: LimineMemmapRequest = LimineMemmapRequest::new(0);
@@ -57,7 +57,10 @@ pub extern "C" fn _start() -> ! {
     mm::kalloc::init();
 
     idt::init();
+    pic::init();
 
+
+    
     hcf();
 }
 
