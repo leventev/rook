@@ -73,6 +73,8 @@ pub extern "C" fn _start() -> ! {
 
     mm::kalloc::init();
 
+    enable_interrupts();
+
     hcf();
 }
 

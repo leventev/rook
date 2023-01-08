@@ -4,4 +4,4 @@ Cargo.lock
 /target
 bin/
 limine/
-iso_root/
+root/
