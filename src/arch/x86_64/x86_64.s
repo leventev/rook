@@ -26,3 +26,46 @@ x86_64_get_cr3:
     mov rax, cr3
     ret
 .end:
+
+global x86_64_switch_task:function (x86_64_switch_task.end - x86_64_switch_task)
+x86_64_switch_task:
+    add rsp, 8 ; we dont need the return value
+    pop rax
+    pop rbx
+    pop rcx
+    pop rdx
+    pop rsi
+    pop rdi
+    pop r8
+    pop r9
+    pop r10
+    pop r11
+    pop r12
+    pop r13
+    pop r14
+    pop r15
+
+    pop rbp
+
+    ; set segments
+    push rax
+
+    mov rax, [rsp + 8]
+    mov es, rax
+
+    mov rax, [rsp + 16]
+    mov ds, rax
+
+    mov rax, [rsp + 24]
+    mov fs, rax
+
+    mov rax, [rsp + 32]
+    mov gs, rax
+
+    pop rax
+    ; add es, ds, fs, gs
+    add rsp, 32
+
+    ; the iret parameters are already pushed to the stack
+    iretq
+.end:

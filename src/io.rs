@@ -2,6 +2,8 @@ use core::fmt;
 use limine::LimineTerminalRequest;
 use spin::Mutex;
 
+use crate::arch::x86_64;
+
 static TERMINAL_REQUEST: LimineTerminalRequest = LimineTerminalRequest::new(0);
 
 struct Writer {
@@ -38,8 +40,20 @@ static WRITER: Mutex<Writer> = Mutex::new(Writer { terminals: None });
 pub fn _print(args: fmt::Arguments) {
     // NOTE: Locking needs to happen around `print_fmt`, not `print_str`, as the former
     // will call the latter potentially multiple times per invocation.
-    let mut writer = WRITER.lock();
-    fmt::Write::write_fmt(&mut *writer, args).ok();
+
+    let int_enabled = x86_64::interrupts_enabled();
+    if int_enabled {
+        x86_64::disable_interrupts();
+    }
+
+    {
+        let mut writer = WRITER.lock();
+        fmt::Write::write_fmt(&mut *writer, args).ok();
+    }
+
+    if int_enabled {
+        x86_64::enable_interrupts();
+    }
 }
 
 #[macro_export]

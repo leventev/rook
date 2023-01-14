@@ -5,6 +5,7 @@
 #![allow(dead_code)]
 #![feature(alloc_error_handler)]
 #![feature(generic_arg_infer)]
+#![feature(linked_list_cursors)]
 
 extern crate alloc;
 
@@ -14,12 +15,13 @@ mod arch;
 mod drivers;
 mod mm;
 mod time;
+mod scheduler;
 
 use limine::{
     LimineBootInfoRequest, LimineBootTimeRequest, LimineHhdmRequest, LimineMemmapRequest,
 };
 
-use crate::arch::x86_64::{disable_interrupts, enable_interrupts, idt, pic};
+use crate::arch::x86_64::{idt, pic};
 
 static BOOTLOADER_INFO: LimineBootInfoRequest = LimineBootInfoRequest::new(0);
 static MMAP_INFO: LimineMemmapRequest = LimineMemmapRequest::new(0);
@@ -73,7 +75,21 @@ pub extern "C" fn _start() -> ! {
 
     mm::kalloc::init();
 
-    enable_interrupts();
+    scheduler::init();
+
+    scheduler::spawn_kernel_thread(|| {
+        for i in 0..10 {
+            println!("thread 1 {}", i);
+        }
+    });
+
+    scheduler::spawn_kernel_thread(|| {
+        for i in 20..30 {
+            println!("thread 2 {}", i);
+        }
+    });
+
+    scheduler::start();
 
     hcf();
 }

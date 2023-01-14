@@ -1,14 +1,13 @@
-RUSTFLAGS := --target x86_64-rook.json
-QEMUFLAGS := -m 128M -serial stdio -vga std -no-reboot -no-shutdown
+RUSTFLAGS=--target x86_64-rook.json
+ASFLAGS=-felf64 -g
+QEMUFLAGS=-m 128M -d int -serial stdio -vga std -no-reboot -no-shutdown\
+-drive file=$(IMAGE),if=ide,media=disk,format=raw\
 
-ASFLAGS := -felf64 -g
+BUILDDIR=bin
+IMAGE=$(BUILDDIR)/rook.img
 
-BUILDDIR := bin
-
-IMAGE := $(BUILDDIR)/rook.img
-
-ASMSRC := $(shell find src -name "*.s")
-ASMOBJ := $(ASMSRC:.s=.o)
+ASMSRC=$(shell find src -name "*.s")
+ASMOBJ=$(ASMSRC:.s=.o)
 
 all: image
 
@@ -25,7 +24,10 @@ image: build
 	sudo ./make_disk.sh
 
 qemu: image
-	qemu-system-x86_64 $(QEMUFLAGS) -drive file=$(IMAGE),if=ide,media=disk,format=raw
+	qemu-system-x86_64 $(QEMUFLAGS)
+
+qemu-debug: QEMUFLAGS += -s -S
+qemu-debug: qemu
 
 clean:
 	rm -rf $(BUILDDIR)

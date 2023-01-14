@@ -5,6 +5,28 @@ pub mod pic;
 
 use core::arch::asm;
 
+bitflags::bitflags! {
+    pub struct Rflags: u64 {
+        const CARRY = 1 << 0;
+        const RESERVED_BIT_1 = 1 << 1;
+        const PARITY = 1 << 2;
+        const AUXILIARY_CARRY = 1 << 4;
+        const ZERO = 1 << 6;
+        const SIGN = 1 << 7;
+        const TRAP = 1 << 8;
+        const INTERRUPT = 1 << 9;
+        const DIRECTION = 1 << 10;
+        const OVERFLOW = 1 << 11;
+        const NESTED_TASK = 1 << 14;
+        const RESUME = 1 << 16;
+        const VIRTUAL8086 = 1 << 17;
+        const ALIGNMENT_CHECK = 1 << 18;
+        const VIRTUAL_INTERRUPT = 1 << 19;
+        const VIRTUAL_INTERRUPT_PENDING = 1 << 20;
+        const ID = 1 << 21;
+    }
+}
+
 extern "C" {
     #[link_name = "x86_64_get_cr3"]
     pub fn get_cr3() -> u64;
@@ -66,10 +88,20 @@ pub fn inl(port: u16) -> u32 {
 
 #[inline]
 pub fn enable_interrupts() {
-    unsafe { asm!("sti"); }
+    unsafe {
+        asm!("sti");
+    }
 }
 
 #[inline]
 pub fn disable_interrupts() {
-    unsafe { asm!("cli"); }
+    unsafe {
+        asm!("cli");
+    }
+}
+
+#[inline]
+pub fn interrupts_enabled() -> bool {
+    let rflags = unsafe { get_rflags() };
+    (rflags & Rflags::INTERRUPT.bits) != 0
 }
