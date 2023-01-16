@@ -6,6 +6,7 @@
 #![feature(alloc_error_handler)]
 #![feature(generic_arg_infer)]
 #![feature(linked_list_cursors)]
+#![feature(new_uninit)]
 
 extern crate alloc;
 
@@ -16,6 +17,7 @@ mod drivers;
 mod mm;
 mod time;
 mod scheduler;
+mod blk;
 
 use limine::{
     LimineBootInfoRequest, LimineBootTimeRequest, LimineHhdmRequest, LimineMemmapRequest,
@@ -88,6 +90,8 @@ pub extern "C" fn _start() -> ! {
             println!("thread 2 {}", i);
         }
     });
+
+    drivers::ata::init();
 
     scheduler::start();
 

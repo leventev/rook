@@ -68,7 +68,6 @@ pub fn init() {
 #[no_mangle]
 fn pit_timer_interrupt() {
     send_irq_eoi(TIMER_IRQ);
-    //println!("before advance: {:?}", Rflags::from_bits(unsafe { x86_64::get_rflags() }));
     // FIXME: figure out a better way to calculate how many milliseconds we want to advance the clock
     let ms_passed = 1000 / TIMER_FREQUENCY;
     time::advance(ms_passed as u64);
