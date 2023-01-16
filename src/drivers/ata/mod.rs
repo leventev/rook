@@ -1,10 +1,10 @@
-use core::{alloc::GlobalAlloc, mem::MaybeUninit};
+use core::{mem::MaybeUninit};
 
-use alloc::{boxed::Box, vec::Vec};
+use alloc::boxed::Box;
 use spin::Mutex;
 
 use crate::{
-    arch::x86_64::{inb, inw, outb},
+    arch::x86_64::{inb, inw, outb, stacktrace},
     blk,
 };
 

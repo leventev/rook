@@ -2,6 +2,7 @@ pub mod exception;
 pub mod idt;
 pub mod paging;
 pub mod pic;
+pub mod stacktrace;
 
 use core::arch::asm;
 

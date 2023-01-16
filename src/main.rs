@@ -23,7 +23,7 @@ use limine::{
     LimineBootInfoRequest, LimineBootTimeRequest, LimineHhdmRequest, LimineMemmapRequest,
 };
 
-use crate::arch::x86_64::{idt, pic};
+use crate::arch::x86_64::{idt, pic, stacktrace};
 
 static BOOTLOADER_INFO: LimineBootInfoRequest = LimineBootInfoRequest::new(0);
 static MMAP_INFO: LimineMemmapRequest = LimineMemmapRequest::new(0);
@@ -94,12 +94,11 @@ pub extern "C" fn _start() -> ! {
     drivers::ata::init();
 
     scheduler::start();
-
-    hcf();
 }
 
 #[panic_handler]
 fn rust_panic(info: &core::panic::PanicInfo) -> ! {
+    stacktrace::walk();
     println!("{}", info);
     hcf();
 }
