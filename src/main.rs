@@ -73,9 +73,10 @@ pub extern "C" fn _start() -> ! {
         .boot_time;
 
     time::init(boot_time as u64);
-    drivers::pit::init();
-
+    
     mm::kalloc::init();
+
+    drivers::init();
 
     scheduler::init();
 
@@ -91,7 +92,6 @@ pub extern "C" fn _start() -> ! {
         }
     });
 
-    drivers::ata::init();
 
     scheduler::start();
 }

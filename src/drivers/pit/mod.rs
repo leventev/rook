@@ -44,7 +44,7 @@ extern "C" {
 
 const TIMER_FREQUENCY: usize = 1000;
 
-pub fn init() {
+pub fn init() -> bool {
     assert!(TIMER_FREQUENCY >= 19 && TIMER_FREQUENCY <= TIMER_BASE_FREQUENCY);
     let reload_value: u16 = if TIMER_FREQUENCY == 0 {
         u16::MAX
@@ -63,6 +63,8 @@ pub fn init() {
     pic::install_irq_handler(0, __pit_timer_interrupt as u64);
     println!("timer initialized, running at {}Hz", TIMER_FREQUENCY);
     enable();
+
+    true
 }
 
 #[no_mangle]

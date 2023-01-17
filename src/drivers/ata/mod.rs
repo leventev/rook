@@ -1,10 +1,10 @@
-use core::{mem::MaybeUninit};
+use core::mem::MaybeUninit;
 
 use alloc::boxed::Box;
 use spin::Mutex;
 
 use crate::{
-    arch::x86_64::{inb, inw, outb, stacktrace},
+    arch::x86_64::{inb, inw, outb},
     blk,
 };
 
@@ -197,7 +197,7 @@ impl ATADevice {
     }
 }
 
-pub fn init() {
+pub fn init() -> bool {
     let mut device = ATA_DEVICE.lock();
 
     for bus in [ATA_PRIMARY_BUS, ATA_SECONDARY_BUS] {
@@ -221,4 +221,6 @@ pub fn init() {
             }
         }
     }
+
+    true
 }
