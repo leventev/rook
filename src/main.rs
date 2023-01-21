@@ -18,12 +18,13 @@ mod mm;
 mod time;
 mod scheduler;
 mod blk;
+mod pci;
 
 use limine::{
     LimineBootInfoRequest, LimineBootTimeRequest, LimineHhdmRequest, LimineMemmapRequest,
 };
 
-use crate::{arch::x86_64::{idt, pic, stacktrace}, mm::phys};
+use crate::arch::x86_64::{idt, pic, stacktrace};
 
 static BOOTLOADER_INFO: LimineBootInfoRequest = LimineBootInfoRequest::new(0);
 static MMAP_INFO: LimineMemmapRequest = LimineMemmapRequest::new(0);
@@ -75,6 +76,10 @@ pub extern "C" fn _start() -> ! {
     time::init(boot_time as u64);
     
     mm::kalloc::init();
+
+    pci::init();
+
+    hcf();
 
     drivers::init();
     
