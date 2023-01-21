@@ -97,7 +97,7 @@ pub extern "C" fn _start() -> ! {
             println!("thread 3 {}", i);
         }
     });
-    
+
     scheduler::start();
 }
 

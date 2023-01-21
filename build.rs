@@ -1,4 +1,4 @@
-use std::{collections::HashMap, env, error::Error, fs, io::BufRead, path::Path, process::Command};
+use std::{env, error::Error, fs, io::BufRead, path::Path, process::Command};
 
 fn find_asm_files(files: &mut Vec<String>, path: String) {
     let entries = fs::read_dir(path).unwrap();
@@ -83,15 +83,16 @@ fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
 
     let kernel_name = env::var("CARGO_PKG_NAME")?;
 
+    for asm_file in asm_source_files {
+        println!("cargo:rerun-if-changed={asm_file}");
+    }
     println!("cargo:rustc-link-arg-bin={kernel_name}=--script=conf/linker.ld");
     for obj in asm_obj_files {
         println!("cargo:rustc-link-arg-bin={kernel_name}={obj}");
-        println!("cargo:rerun-if-changed={obj}");
     }
 
-    // Have cargo rerun this script if the linker script or CARGO_PKG_ENV changes.
     println!("cargo:rerun-if-changed=conf/linker.ld");
-    println!("cargo:rerun-if-changed=modules.cfg");
+    println!("cargo:rerun-if-changed=kernel.cfg");
 
     println!("cargo:rerun-if-env-changed=CARGO_PKG_NAME");
 

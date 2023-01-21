@@ -19,7 +19,7 @@ $(BUILDDIR):
 	nasm $(ASFLAGS) $< -o $(addprefix $(BUILDDIR)/,$(notdir $@))
 
 build: $(BUILDDIR) $(ASMOBJ)
-	export RUSTFLAGS=$(RUSTFLAGS) && cargo build $(CARGOFLAGS)
+	cargo build $(CARGOFLAGS)
 
 image: build
 	sudo ./make_disk.sh
