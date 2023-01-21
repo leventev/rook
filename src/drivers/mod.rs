@@ -1,10 +1,10 @@
 use alloc::vec::Vec;
 use spin::Mutex;
 
-#[cfg(module_ata)]
+#[cfg(ata_module)]
 mod ata;
 
-#[cfg(module_pit)]
+#[cfg(pit_module)]
 mod pit;
 
 // FIXME: dont include assembly files associated with disabled modules in the build
@@ -27,10 +27,10 @@ static KERNEL_MODULES: Mutex<Vec<KernelModule>> = Mutex::new(Vec::new());
 pub fn init() {
     let mut modules = KERNEL_MODULES.lock();
 
-    #[cfg(module_ata)]
+    #[cfg(ata_module)]
     modules.push(KernelModule::new(ata::init, "ata"));
 
-    #[cfg(module_pit)]
+    #[cfg(pit_module)]
     modules.push(KernelModule::new(pit::init, "pit"));
 
     for module in modules.iter() {

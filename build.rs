@@ -36,37 +36,37 @@ fn build_asm_files(src_files: &Vec<String>, obj_files: &mut Vec<String>) {
     }
 }
 
-fn get_enabled_kernel_modules() -> Vec<String> {
-    const MODULE_CONFIG_FILE_NAME: &str = "modules.cfg";
-    let config_file: Vec<Vec<String>> = fs::read(MODULE_CONFIG_FILE_NAME)
-        .expect("Failed to read module config file")
+fn parse_kernel_config() -> Vec<String> {
+    const KERNEL_CONFIG_FILE_NAME: &str = "kernel.cfg";
+    let config_file: Vec<Vec<String>> = fs::read(KERNEL_CONFIG_FILE_NAME)
+        .expect("Failed to read kernel config file")
         .lines()
         .map(|line| line.unwrap().split("=").map(|s| String::from(s)).collect())
         .collect();
 
-    let mut modules = Vec::new();
+    let mut options = Vec::new();
     for (i, l) in config_file.iter().enumerate() {
         if l.len() != 2 {
-            println!("{}:{}: invalid entry", MODULE_CONFIG_FILE_NAME, i + 1);
+            println!("{}:{}: invalid entry", KERNEL_CONFIG_FILE_NAME, i + 1);
             continue;
         }
 
         match l[1].as_str() {
             "yes" | "y" => {
-                modules.push(l[0].clone());
-                println!("MODULE {} enabled", l[0]);
+                options.push(l[0].clone());
+                println!("CONFIG: {} enabled", l[0]);
             }
             "no" | "n" => {
-                println!("MODULE {} disabled", l[0]);
+                println!("CONFIG: {} disabled", l[0]);
             }
             _ => {
-                println!("{}:{}: invalid entry", MODULE_CONFIG_FILE_NAME, i + 1);
+                println!("{}:{}: invalid entry", KERNEL_CONFIG_FILE_NAME, i + 1);
                 continue;
             }
         }
     }
 
-    modules
+    options
 }
 
 fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
@@ -76,21 +76,8 @@ fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     find_asm_files(&mut asm_source_files, String::from("src"));
     build_asm_files(&asm_source_files, &mut asm_obj_files);
 
-    let kernel_modules = get_enabled_kernel_modules();
-    for flag in kernel_modules {
-        println!("cargo:rustc-cfg=module_{}", flag);
-    }
-
-    let mut debug_flags: HashMap<&str, bool> = HashMap::new();
-    // to enable a flag just simply replace the false with a true
-    debug_flags.insert("vmm_debug", false);
-    debug_flags.insert("pfa_debug", false);
-    debug_flags.insert("kalloc_debug", false);
-
-    for (flag, enabled) in debug_flags {
-        if !enabled {
-            continue;
-        }
+    let kernel_config = parse_kernel_config();
+    for flag in kernel_config {
         println!("cargo:rustc-cfg={}", flag);
     }
 
