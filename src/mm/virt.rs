@@ -1,6 +1,7 @@
 use crate::arch::x86_64::get_cr3;
 use crate::arch::x86_64::paging::PageFlags;
 use crate::mm::{PhysAddr, VirtAddr};
+use crate::scheduler::start;
 use spin::Mutex;
 
 use super::phys;
@@ -17,7 +18,7 @@ struct VirtualMemoryManager {
 }
 
 impl VirtualMemoryManager {
-    // initializes the memory manager
+    // Initializes the virtual memory manager
     pub fn init(&mut self, hhdm: VirtAddr) {
         self.pml4_phys = PhysAddr(unsafe { get_cr3() });
         let pml4_virt = hhdm + VirtAddr::new(self.pml4_phys.get());
@@ -170,6 +171,21 @@ impl VirtualMemoryManager {
             let phys = phys::alloc();
             ent = self.map_pml4(index, phys, PageFlags::READ_WRITE | PageFlags::PRESENT);
 
+            // zero out the page
+            let start_addr = VirtualMemoryManager::get_recursive_addr(
+                RECURSIVE_PML4_INDEX,
+                RECURSIVE_PML4_INDEX,
+                RECURSIVE_PML4_INDEX,
+                index,
+                0,
+            );
+            for i in 0..4096 / 8 {
+                let ptr = (start_addr + i * 8) as *mut u64;
+                unsafe {
+                    *ptr = 0;
+                }
+            }
+
             if cfg!(vmm_debug) {
                 println!(
                     "VMM: pml4 entry({}) was empty, allocated a new frame: {}",
@@ -213,6 +229,21 @@ impl VirtualMemoryManager {
                 phys,
                 PageFlags::READ_WRITE | PageFlags::PRESENT,
             );
+
+            // zero out the page
+            let start_addr = VirtualMemoryManager::get_recursive_addr(
+                RECURSIVE_PML4_INDEX,
+                RECURSIVE_PML4_INDEX,
+                pml4_index,
+                index,
+                0,
+            );
+            for i in 0..4096 / 8 {
+                let ptr = (start_addr + i * 8) as *mut u64;
+                unsafe {
+                    *ptr = 0;
+                }
+            }
 
             if cfg!(vmm_debug) {
                 println!(
@@ -265,6 +296,21 @@ impl VirtualMemoryManager {
                 phys,
                 PageFlags::READ_WRITE | PageFlags::PRESENT,
             );
+
+            // zero out the page
+            let start_addr = VirtualMemoryManager::get_recursive_addr(
+                RECURSIVE_PML4_INDEX,
+                pml4_index,
+                pml3_index,
+                index,
+                0,
+            );
+            for i in 0..4 {
+                let ptr = (start_addr + i * 8) as *mut u64;
+                unsafe {
+                    *ptr = 0;
+                }
+            }
 
             if cfg!(vmm_debug) {
                 println!(
@@ -325,6 +371,17 @@ impl VirtualMemoryManager {
                 phys,
                 PageFlags::READ_WRITE | PageFlags::PRESENT,
             );
+
+            // zero out the page
+            let start_addr = VirtualMemoryManager::get_recursive_addr(
+                pml4_index, pml3_index, pml2_index, index, 0,
+            );
+            for i in 0..4096 / 8 {
+                let ptr = (start_addr + i * 8) as *mut u64;
+                unsafe {
+                    *ptr = 0;
+                }
+            }
 
             if cfg!(vmm_debug) {
                 println!(

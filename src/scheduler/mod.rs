@@ -1,6 +1,6 @@
 use crate::{
     arch::x86_64::{self, paging::PageFlags},
-    mm::{phys, virt, VirtAddr},
+    mm::{phys, virt, VirtAddr, PhysAddr},
 };
 
 use core::fmt;
@@ -16,6 +16,8 @@ const KERNEL_THREAD_STACKS_START: VirtAddr = VirtAddr::new(0xfffffe0000000000);
 const KERNEL_STACK_SIZE_PER_THREAD: u64 = 2 * 4096; // 8KiB
 
 const TICKS_PER_THREAD_SWITCH: usize = 20;
+
+const MAX_TASKS: usize = 64;
 
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
@@ -143,7 +145,7 @@ extern "C" {
 impl Scheduler {
     fn alloc_kernel_stack(tid: usize) -> u64 {
         // FIXME: increase limit
-        assert!(tid < 1024);
+        assert!(tid < MAX_TASKS);
         KERNEL_THREAD_STACKS_START.get() + tid as u64 * KERNEL_STACK_SIZE_PER_THREAD
     }
 
@@ -262,6 +264,7 @@ impl Scheduler {
             }
         }
 
+        println!("next thread: {}", next_thread.id);
         unsafe {
             // push the registers on the stack and switch tasks
             x86_64_switch_task(next_thread.regs);
@@ -294,12 +297,20 @@ pub fn init() {
     // interrupts should be disasbled when this is called
     let mut sched = SCHEDULER.lock();
 
-    let kernel_stack_space_size = 1024 * KERNEL_STACK_SIZE_PER_THREAD;
+    const ALLOC_AT_ONCE: usize = 128;
+    let kernel_stack_space_size = MAX_TASKS as u64 * KERNEL_STACK_SIZE_PER_THREAD;
     let in_pages = kernel_stack_space_size / 4096;
-    for i in 0..in_pages {
-        let virt = KERNEL_THREAD_STACKS_START + VirtAddr::new(i * 4096);
-        let phys = phys::alloc();
-        virt::map(virt, phys, PageFlags::READ_WRITE);
+
+    assert!(in_pages % ALLOC_AT_ONCE as u64 == 0);
+    let allocs = in_pages as usize / ALLOC_AT_ONCE;
+
+    for i in 0..allocs {
+        let phys_start = phys::alloc_multiple(ALLOC_AT_ONCE);
+        for j in 0..ALLOC_AT_ONCE {
+            let phys = phys_start + PhysAddr::new(j as u64 * 4096);
+            let virt = KERNEL_THREAD_STACKS_START + VirtAddr::new((i * ALLOC_AT_ONCE + j) as u64 * 4096);
+            virt::map(virt, phys, PageFlags::READ_WRITE);
+        }
     }
 
     // spawn sentinel thread

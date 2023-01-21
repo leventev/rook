@@ -104,6 +104,7 @@ fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
 
     // Have cargo rerun this script if the linker script or CARGO_PKG_ENV changes.
     println!("cargo:rerun-if-changed=conf/linker.ld");
+    println!("cargo:rerun-if-changed=modules.cfg");
 
     println!("cargo:rerun-if-env-changed=CARGO_PKG_NAME");
 

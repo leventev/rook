@@ -23,7 +23,7 @@ use limine::{
     LimineBootInfoRequest, LimineBootTimeRequest, LimineHhdmRequest, LimineMemmapRequest,
 };
 
-use crate::arch::x86_64::{idt, pic, stacktrace};
+use crate::{arch::x86_64::{idt, pic, stacktrace}, mm::phys};
 
 static BOOTLOADER_INFO: LimineBootInfoRequest = LimineBootInfoRequest::new(0);
 static MMAP_INFO: LimineMemmapRequest = LimineMemmapRequest::new(0);
@@ -77,22 +77,27 @@ pub extern "C" fn _start() -> ! {
     mm::kalloc::init();
 
     drivers::init();
-
+    
     scheduler::init();
-
+    
     scheduler::spawn_kernel_thread(|| {
         for i in 0..10 {
             println!("thread 1 {}", i);
         }
     });
-
+    
     scheduler::spawn_kernel_thread(|| {
         for i in 20..30 {
             println!("thread 2 {}", i);
         }
     });
-
-
+    
+    scheduler::spawn_kernel_thread(|| {
+        for i in 10..20 {
+            println!("thread 3 {}", i);
+        }
+    });
+    
     scheduler::start();
 }
 
