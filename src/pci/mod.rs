@@ -1,8 +1,9 @@
-use alloc::{fmt, boxed::Box};
+use self::class::*;
 use crate::arch::x86_64::*;
-use self::classes::*;
+use alloc::{boxed::Box, fmt, vec::Vec};
+use spin::Mutex;
 
-mod classes;
+mod class;
 
 #[derive(Clone, Copy, Debug)]
 struct PCIDeviceType0 {
@@ -28,7 +29,7 @@ struct PCIDeviceType1 {
     bar0: u32,
     bar1: u32,
     primary_bus_number: u8,
-    seconday_bus_number: u8,
+    secondary_bus_number: u8,
     subordinate_bus_number: u8,
     secondary_latency_timer: u8,
     io_base: u8,
@@ -81,41 +82,53 @@ union PCIDeviceExtended {
     type2: PCIDeviceType2,
 }
 
-fn class_from_u8(classcode: u8, subclass: u8) -> Box<dyn PCIClass> {
+fn class_from_u8(classcode: u8, subclass: u8) -> PCIClass {
     match classcode {
-        0x00 => Box::new(Unclassified::from_subclass(subclass)),
-        0x01 => Box::new(MassStorageController::from_subclass(subclass)),
-        0x02 => Box::new(NetworkController::from_subclass(subclass)),
-        0x03 => Box::new(DisplayController::from_subclass(subclass)),
-        0x04 => Box::new(MultimediaController::from_subclass(subclass)),
-        0x05 => Box::new(MemoryController::from_subclass(subclass)),
-        0x06 => Box::new(Bridge::from_subclass(subclass)),
-        0x07 => Box::new(SimpleCommunicationController::from_subclass(subclass)),
-        0x08 => Box::new(BaseSystemPeripheral::from_subclass(subclass)),
-        0x09 => Box::new(InputDeviceController::from_subclass(subclass)),
-        0x0A => Box::new(DockingStation::from_subclass(subclass)),
-        0x0B => Box::new(Processor::from_subclass(subclass)),
-        0x0C => Box::new(SerialBusController::from_subclass(subclass)),
-        0x0D => Box::new(WirelessController::from_subclass(subclass)),
-        0x0E => Box::new(IntelligentController::from_subclass(subclass)),
-        0x0F => Box::new(SatelliteCommunicationController::from_subclass(subclass)),
-        0x10 => Box::new(EncryptionController::from_subclass(subclass)),
-        0x11 => Box::new(SignalProcessingController::from_subclass(subclass)),
-        0x12 => Box::new(ProcessingAccelerator::from_subclass(subclass)),
-        0x13 => Box::new(NonEssentialInstrumentation::from_subclass(subclass)),
-        0x40 => Box::new(CoProcessor::from_subclass(subclass)),
-        _ => unreachable!()
+        0x00 => PCIClass::Unclassified(Unclassified::from_subclass(subclass)),
+        0x01 => PCIClass::MassStorageController(MassStorageController::from_subclass(subclass)),
+        0x02 => PCIClass::NetworkController(NetworkController::from_subclass(subclass)),
+        0x03 => PCIClass::DisplayController(DisplayController::from_subclass(subclass)),
+        0x04 => PCIClass::MultimediaController(MultimediaController::from_subclass(subclass)),
+        0x05 => PCIClass::MemoryController(MemoryController::from_subclass(subclass)),
+        0x06 => PCIClass::Bridge(Bridge::from_subclass(subclass)),
+        0x07 => PCIClass::SimpleCommunicationController(
+            SimpleCommunicationController::from_subclass(subclass),
+        ),
+        0x08 => PCIClass::BaseSystemPeripheral(BaseSystemPeripheral::from_subclass(subclass)),
+        0x09 => PCIClass::InputDeviceController(InputDeviceController::from_subclass(subclass)),
+        0x0A => PCIClass::DockingStation(DockingStation::from_subclass(subclass)),
+        0x0B => PCIClass::Processor(Processor::from_subclass(subclass)),
+        0x0C => PCIClass::SerialBusController(SerialBusController::from_subclass(subclass)),
+        0x0D => PCIClass::WirelessController(WirelessController::from_subclass(subclass)),
+        0x0E => PCIClass::IntelligentController(IntelligentController::from_subclass(subclass)),
+        0x0F => PCIClass::SatelliteCommunicationController(
+            SatelliteCommunicationController::from_subclass(subclass),
+        ),
+        0x10 => PCIClass::EncryptionController(EncryptionController::from_subclass(subclass)),
+        0x11 => PCIClass::SignalProcessingController(SignalProcessingController::from_subclass(
+            subclass,
+        )),
+        0x12 => PCIClass::ProcessingAccelerator(ProcessingAccelerator::from_subclass(subclass)),
+        0x13 => PCIClass::NonEssentialInstrumentation(NonEssentialInstrumentation::from_subclass(
+            subclass,
+        )),
+        0x40 => PCIClass::CoProcessor(CoProcessor::from_subclass(subclass)),
+        _ => unreachable!(),
     }
 }
 
 pub struct PCIDevice {
+    bus: u8,
+    dev: u8,
+    function: u8,
+
     vendor_id: u16,
     device_id: u16,
     command: u16,
     status: u16,
     revision_id: u8,
     prog_if: u8,
-    class: Box<dyn PCIClass>,
+    class: PCIClass,
     cache_line_size: u8,
     latency_timer: u8,
     header_type: u8,
@@ -126,23 +139,26 @@ pub struct PCIDevice {
 
 impl fmt::Display for PCIDevice {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write !(f, "vendor_id: {} ", self.vendor_id).unwrap();
-        write !(f, "device_id: {} ", self.device_id).unwrap();
-        write !(f, "command: {} ", self.command).unwrap();
-        write !(f, "status: {} ", self.status).unwrap();
-        write !(f, "revision_id: {} ", self.revision_id).unwrap();
-        write !(f, "prog_if: {} ", self.prog_if).unwrap();
-        write !(f, "class: {:?} ", self.class).unwrap();
-        write !(f, "cache_line_size: {} ", self.cache_line_size).unwrap();
-        write !(f, "latency_timer: {} ", self.latency_timer).unwrap();
-        write !(f, "header_type: {} ", self.header_type).unwrap();
-        write !(f, "bist: {} ", self.bist).unwrap();
+        write!(f, "bus: {} ", self.bus).unwrap();
+        write!(f, "dev: {} ", self.dev).unwrap();
+        write!(f, "function: {} ", self.function).unwrap();
+        write!(f, "vendor_id: {} ", self.vendor_id).unwrap();
+        write!(f, "device_id: {} ", self.device_id).unwrap();
+        write!(f, "command: {} ", self.command).unwrap();
+        write!(f, "status: {} ", self.status).unwrap();
+        write!(f, "revision_id: {} ", self.revision_id).unwrap();
+        write!(f, "prog_if: {} ", self.prog_if).unwrap();
+        write!(f, "class: {:?} ", self.class).unwrap();
+        write!(f, "cache_line_size: {} ", self.cache_line_size).unwrap();
+        write!(f, "latency_timer: {} ", self.latency_timer).unwrap();
+        write!(f, "header_type: {} ", self.header_type).unwrap();
+        write!(f, "bist: {} ", self.bist).unwrap();
 
         match self.header_type {
             0x0 => unsafe { write!(f, "{:?}", self.specific.type0) },
             0x1 => unsafe { write!(f, "{:?}", self.specific.type1) },
             0x2 => unsafe { write!(f, "{:?}", self.specific.type2) },
-            _ => unreachable!()
+            _ => unreachable!(),
         }
     }
 }
@@ -228,6 +244,8 @@ const DEVICE_TYPE2_SUBSYSTEM_DEVICE_ID_OFF: u8 = 0x40;
 const DEVICE_TYPE2_SUBSYSTEM_VENDOR_ID_OFF: u8 = 0x42;
 const DEVICE_TYPE2_PC_CARD_LEGACY_MODE_BASE_ADDRESS_OFF: u8 = 0x44;
 
+static PCI_DEVICES: Mutex<Vec<PCIDevice>> = Mutex::new(Vec::new());
+
 fn construct_addr(bus: u8, dev: u8, function: u8) -> u32 {
     (1 << 31) | ((bus as u32) << 16) | ((dev as u32) << 11) | ((function as u32) << 8)
 }
@@ -277,7 +295,7 @@ fn read_header_type1(base_addr: u32) -> PCIDeviceType1 {
         bar0: read32(base_addr, DEVICE_TYPE1_BAR0_OFF),
         bar1: read32(base_addr, DEVICE_TYPE1_BAR1_OFF),
         primary_bus_number: read8(base_addr, DEVICE_TYPE1_PRIMARY_BUS_NUMBER_OFF),
-        seconday_bus_number: read8(base_addr, DEVICE_TYPE1_SECONDARY_BUS_NUMBER_OFF),
+        secondary_bus_number: read8(base_addr, DEVICE_TYPE1_SECONDARY_BUS_NUMBER_OFF),
         subordinate_bus_number: read8(base_addr, DEVICE_TYPE1_SUBORDINATE_BUS_NUMBER_OFF),
         secondary_latency_timer: read8(base_addr, DEVICE_TYPE1_SECONDARY_LATENCY_TIMER_OFF),
         io_base: read8(base_addr, DEVICE_TYPE1_IO_BASE_OFF),
@@ -334,27 +352,23 @@ fn read_header_type2(base_addr: u32) -> PCIDeviceType2 {
     }
 }
 
-fn read_device(bus: u8, dev: u8) -> Option<PCIDevice> {
-    let base_addr = construct_addr(bus, dev, 0);
+fn read_function(devices: &mut Vec<PCIDevice>, bus: u8, dev: u8, func: u8) {
+    let base_addr = construct_addr(bus, dev, func);
 
     let vendor_id = read16(base_addr, VENDOR_ID_OFF);
     if vendor_id == 0xFFFF {
-        return None;
+        return;
     }
 
-    let header_type = read8(base_addr, DEVICE_HEADER_TYPE_OFF);
-    if header_type & (1 << 7) > 0 {
-        // TODO: 
-        println!("TODO: header has multiple functions, returning None");
-        return None;
-    }
-
-    println!("vendor_id: {} header_type: {}", vendor_id, header_type);
+    let header_type = read8(base_addr, DEVICE_HEADER_TYPE_OFF) & 0b11;
 
     let classcode = read8(base_addr, DEVICE_CLASS_CODE_OFF);
     let subclass = read8(base_addr, DEVICE_SUBCLASS_OFF);
 
-    Some(PCIDevice {
+    let device = PCIDevice {
+        bus,
+        dev,
+        function: func,
         vendor_id,
         device_id: read16(base_addr, DEVICE_ID_OFF),
         command: read16(base_addr, DEVICE_COMMAND_OFF),
@@ -378,16 +392,60 @@ fn read_device(bus: u8, dev: u8) -> Option<PCIDevice> {
             },
             _ => unreachable!(),
         },
-    })
+    };
+
+    if let PCIClass::Bridge(ref bridge_type) = device.class {
+        if *bridge_type == Bridge::PCIToPCIBridge {
+            let secondary_bus = unsafe { device.specific.type1.secondary_bus_number };
+            read_bus(devices, secondary_bus);
+        }
+    }
+
+    devices.push(device);
+}
+
+fn read_device(devices: &mut Vec<PCIDevice>, bus: u8, dev: u8) {
+    let base_addr = construct_addr(bus, dev, 0);
+
+    let vendor_id = read16(base_addr, VENDOR_ID_OFF);
+    if vendor_id == 0xFFFF {
+        return;
+    }
+
+    let header_type = read8(base_addr, DEVICE_HEADER_TYPE_OFF);
+    if header_type & (1 << 7) > 0 {
+        for func in 0..8 {
+            read_function(devices, bus, dev, func);
+        }
+    } else {
+        read_function(devices, bus, dev, 0);
+    }
+}
+
+fn read_bus(devices: &mut Vec<PCIDevice>, bus: u8) {
+    for dev in 0..32 {
+        read_device(devices, bus, dev);
+    }
 }
 
 pub fn init() {
-    for bus in 0..=255 {
-        for dev in 0..32 {
-            if let Some(device) = read_device(bus, dev) {
-                println!("PCI device found bus {} / device {}", bus, dev);
-                println!("{}", device);
-            }
+    let mut devices = PCI_DEVICES.lock();
+
+    let bus0_base_addr = construct_addr(0, 0, 0);
+    let header_type = read8(bus0_base_addr, DEVICE_HEADER_TYPE_OFF);
+
+    if header_type & (1 << 7) == 0 {
+        read_bus(&mut devices, 0);
+    } else {
+        for func in 0..8 {
+            let base_addr = construct_addr(0, 0, func);
+            let vendor_id = read32(base_addr, VENDOR_ID_OFF);
+            if vendor_id == 0xFFF { break; }
+            read_bus(&mut devices, func);
         }
+    }
+
+    for device in devices.iter() {
+        println!("{}", device);
     }
 }

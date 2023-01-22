@@ -1,27 +1,39 @@
 use core::fmt::Debug;
 
-pub trait PCIClass: Debug {
-    fn from_subclass(subclass: u8) -> Self where Self: Sized;
+/*pub trait PCIClass: Debug + Send {
+    pub fn from_subclass(subclass: u8) -> Self
+    where
+        Self: Sized;
 }
 
-#[derive(Debug)]
+impl Debug, PartialEq) for dyn PCIClass {
+    fn eq(&self, other: &Self) -> bool {
+        self == other
+    }
+
+    fn ne(&self, other: &Self) -> bool {
+        self != other
+    }
+}*/
+
+#[derive(Debug, PartialEq)]
 pub enum Unclassified {
     NonVGACompatibleDevice,
-    VGACompatbileDevice
+    VGACompatbileDevice,
 }
 
-impl PCIClass for Unclassified {
-    fn from_subclass(subclass: u8) -> Self {
+impl Unclassified {
+    pub fn from_subclass(subclass: u8) -> Self {
         match subclass {
             0x0 => Self::NonVGACompatibleDevice,
             0x1 => Self::VGACompatbileDevice,
-            _ => unreachable!()
+            _ => unreachable!(),
         }
     }
 }
 
-#[derive(Debug)]
-pub enum MassStorageController { 
+#[derive(Debug, PartialEq)]
+pub enum MassStorageController {
     SCSIBusController,
     IDEController,
     FloppyDiskController,
@@ -31,11 +43,11 @@ pub enum MassStorageController {
     SerialATAController,
     SerialAttachedSCSIController,
     NonVolatileMemoryContoller,
-    Other
+    Other,
 }
 
-impl PCIClass for MassStorageController {
-    fn from_subclass(subclass: u8) -> Self {
+impl MassStorageController {
+    pub fn from_subclass(subclass: u8) -> Self {
         match subclass {
             0x0 => Self::SCSIBusController,
             0x1 => Self::IDEController,
@@ -47,12 +59,12 @@ impl PCIClass for MassStorageController {
             0x7 => Self::SerialAttachedSCSIController,
             0x8 => Self::NonVolatileMemoryContoller,
             0x80 => Self::Other,
-            _ => unreachable!()
+            _ => unreachable!(),
         }
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum NetworkController {
     EthernetController,
     TokenRingController,
@@ -63,11 +75,11 @@ pub enum NetworkController {
     PCIMG2_14MultiComputingController,
     InfibandController,
     FabricController,
-    Other
+    Other,
 }
 
-impl PCIClass for NetworkController {
-    fn from_subclass(subclass: u8) -> Self {
+impl NetworkController {
+    pub fn from_subclass(subclass: u8) -> Self {
         match subclass {
             0x0 => Self::EthernetController,
             0x1 => Self::TokenRingController,
@@ -79,72 +91,72 @@ impl PCIClass for NetworkController {
             0x7 => Self::InfibandController,
             0x8 => Self::FabricController,
             0x80 => Self::Other,
-            _ => unreachable!()
+            _ => unreachable!(),
         }
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum DisplayController {
     VGACompatibleController,
     XGAController,
     _3DController,
-    Other
+    Other,
 }
 
-impl PCIClass for DisplayController {
-    fn from_subclass(subclass: u8) -> Self {
+impl DisplayController {
+    pub fn from_subclass(subclass: u8) -> Self {
         match subclass {
             0x0 => Self::VGACompatibleController,
             0x1 => Self::XGAController,
             0x2 => Self::_3DController,
             0x80 => Self::Other,
-            _ => unreachable!()
+            _ => unreachable!(),
         }
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum MultimediaController {
     MultimediaVideo,
     MultimediaAudio,
     ComputerTelephonyDevice,
     AudioDevice,
-    Other
+    Other,
 }
 
-impl PCIClass for MultimediaController {
-    fn from_subclass(subclass: u8) -> Self {
+impl MultimediaController {
+    pub fn from_subclass(subclass: u8) -> Self {
         match subclass {
             0x0 => Self::MultimediaVideo,
             0x1 => Self::AudioDevice,
             0x2 => Self::ComputerTelephonyDevice,
             0x3 => Self::AudioDevice,
             0x80 => Self::Other,
-            _ => unreachable!()
+            _ => unreachable!(),
         }
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum MemoryController {
     RAMController,
     FlashController,
-    Other
+    Other,
 }
 
-impl PCIClass for MemoryController {
-    fn from_subclass(subclass: u8) -> Self {
+impl MemoryController {
+    pub fn from_subclass(subclass: u8) -> Self {
         match subclass {
             0x0 => Self::RAMController,
             0x1 => Self::FlashController,
             0x80 => Self::Other,
-            _ => unreachable!()
+            _ => unreachable!(),
         }
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Bridge {
     HostBridge,
     ISABridge,
@@ -157,11 +169,11 @@ pub enum Bridge {
     RACEwayBridge,
     PCItoPCIBridge2,
     InfiniBandToPCIHostBridge,
-    Other
+    Other,
 }
 
-impl PCIClass for Bridge {
-    fn from_subclass(subclass: u8) -> Self {
+impl Bridge {
+    pub fn from_subclass(subclass: u8) -> Self {
         match subclass {
             0x0 => Self::HostBridge,
             0x1 => Self::ISABridge,
@@ -175,12 +187,12 @@ impl PCIClass for Bridge {
             0x9 => Self::PCItoPCIBridge2,
             0xA => Self::InfiniBandToPCIHostBridge,
             0x80 => Self::Other,
-            _ => unreachable!()
+            _ => unreachable!(),
         }
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum SimpleCommunicationController {
     SerialController,
     ParallelController,
@@ -188,11 +200,11 @@ pub enum SimpleCommunicationController {
     Modem,
     IEEE488_1_2Controller,
     SmartCardController,
-    Other
+    Other,
 }
 
-impl PCIClass for SimpleCommunicationController {
-    fn from_subclass(subclass: u8) -> Self {
+impl SimpleCommunicationController {
+    pub fn from_subclass(subclass: u8) -> Self {
         match subclass {
             0x0 => Self::SerialController,
             0x1 => Self::ParallelController,
@@ -201,12 +213,12 @@ impl PCIClass for SimpleCommunicationController {
             0x4 => Self::IEEE488_1_2Controller,
             0x5 => Self::SmartCardController,
             0x80 => Self::Other,
-            _ => unreachable!()
+            _ => unreachable!(),
         }
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum BaseSystemPeripheral {
     PIC,
     DMAController,
@@ -215,11 +227,11 @@ pub enum BaseSystemPeripheral {
     PCIHotPlugController,
     SDHostController,
     IOMMU,
-    Other
+    Other,
 }
 
-impl PCIClass for BaseSystemPeripheral {
-    fn from_subclass(subclass: u8) -> Self {
+impl BaseSystemPeripheral {
+    pub fn from_subclass(subclass: u8) -> Self {
         match subclass {
             0x0 => Self::PIC,
             0x1 => Self::DMAController,
@@ -229,23 +241,23 @@ impl PCIClass for BaseSystemPeripheral {
             0x5 => Self::SDHostController,
             0x6 => Self::IOMMU,
             0x80 => Self::Other,
-            _ => unreachable!()
+            _ => unreachable!(),
         }
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum InputDeviceController {
     KeyboardController,
     DigitizerPen,
     MouseController,
     ScannerController,
     GameportController,
-    Other
+    Other,
 }
 
-impl PCIClass for InputDeviceController {
-    fn from_subclass(subclass: u8) -> Self {
+impl InputDeviceController {
+    pub fn from_subclass(subclass: u8) -> Self {
         match subclass {
             0x0 => Self::KeyboardController,
             0x1 => Self::DigitizerPen,
@@ -253,28 +265,28 @@ impl PCIClass for InputDeviceController {
             0x3 => Self::ScannerController,
             0x4 => Self::GameportController,
             0x80 => Self::Other,
-            _ => unreachable!()
+            _ => unreachable!(),
         }
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum DockingStation {
     Generic,
-    Other
+    Other,
 }
 
-impl PCIClass for DockingStation {
-    fn from_subclass(subclass: u8) -> Self {
+impl DockingStation {
+    pub fn from_subclass(subclass: u8) -> Self {
         match subclass {
             0x0 => Self::Generic,
             0x80 => Self::Other,
-            _ => unreachable!()
+            _ => unreachable!(),
         }
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Processor {
     I386,
     I486,
@@ -284,11 +296,11 @@ pub enum Processor {
     PowerPC,
     MIPS,
     CoProcessor,
-    Other
+    Other,
 }
 
-impl PCIClass for Processor {
-    fn from_subclass(subclass: u8) -> Self {
+impl Processor {
+    pub fn from_subclass(subclass: u8) -> Self {
         match subclass {
             0x0 => Self::I386,
             0x1 => Self::I486,
@@ -299,12 +311,12 @@ impl PCIClass for Processor {
             0x30 => Self::MIPS,
             0x40 => Self::CoProcessor,
             0x80 => Self::Other,
-            _ => unreachable!()
+            _ => unreachable!(),
         }
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum SerialBusController {
     FireWireController,
     ACCESSBusController,
@@ -316,11 +328,11 @@ pub enum SerialBusController {
     IPMIInterface,
     SERCOSInterface,
     CANBusController,
-    Other
+    Other,
 }
 
-impl PCIClass for SerialBusController {
-    fn from_subclass(subclass: u8) -> Self {
+impl SerialBusController {
+    pub fn from_subclass(subclass: u8) -> Self {
         match subclass {
             0x0 => Self::FireWireController,
             0x1 => Self::ACCESSBusController,
@@ -333,12 +345,12 @@ impl PCIClass for SerialBusController {
             0x8 => Self::SERCOSInterface,
             0x9 => Self::CANBusController,
             0x80 => Self::Other,
-            _ => unreachable!()
+            _ => unreachable!(),
         }
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum WirelessController {
     IRDACompatibleController,
     ConsumerIRController,
@@ -347,128 +359,153 @@ pub enum WirelessController {
     BroadbandController,
     EthernetControllerA,
     EthernetControllerB,
-    Other
+    Other,
 }
 
-impl PCIClass for WirelessController {
-    fn from_subclass(subclass: u8) -> Self {
+impl WirelessController {
+    pub fn from_subclass(subclass: u8) -> Self {
         match subclass {
             0x0 => Self::IRDACompatibleController,
             0x1 => Self::ConsumerIRController,
             0x10 => Self::RFController,
-            0x11 => Self::BluetoothController, 
+            0x11 => Self::BluetoothController,
             0x12 => Self::BroadbandController,
             0x20 => Self::EthernetControllerA,
             0x21 => Self::EthernetControllerB,
             0x80 => Self::Other,
-            _ => unreachable!()
+            _ => unreachable!(),
         }
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum IntelligentController {
-    I20
+    I20,
 }
 
-impl PCIClass for IntelligentController {
-    fn from_subclass(subclass: u8) -> Self {
+impl IntelligentController {
+    pub fn from_subclass(subclass: u8) -> Self {
         match subclass {
             0x0 => Self::I20,
-            _ => unreachable!()
+            _ => unreachable!(),
         }
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum SatelliteCommunicationController {
     SatelliteTVController,
     SatelliteAudioController,
     SatelliteVoiceController,
-    SatelliteDataController
+    SatelliteDataController,
 }
 
-impl PCIClass for SatelliteCommunicationController {
-    fn from_subclass(subclass: u8) -> Self {
+impl SatelliteCommunicationController {
+    pub fn from_subclass(subclass: u8) -> Self {
         match subclass {
             0x1 => Self::SatelliteTVController,
             0x2 => Self::SatelliteAudioController,
             0x3 => Self::SatelliteVoiceController,
             0x4 => Self::SatelliteDataController,
-            _ => unreachable!()
+            _ => unreachable!(),
         }
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum EncryptionController {
     NetworkAndComputingEncryptionDecryption,
     EntertainmentEncryptionDecryption,
-    Other
+    Other,
 }
 
-impl PCIClass for EncryptionController {
-    fn from_subclass(subclass: u8) -> Self {
+impl EncryptionController {
+    pub fn from_subclass(subclass: u8) -> Self {
         match subclass {
             0x0 => Self::NetworkAndComputingEncryptionDecryption,
             0x10 => Self::EntertainmentEncryptionDecryption,
             0x80 => Self::Other,
-            _ => unreachable!()
+            _ => unreachable!(),
         }
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum SignalProcessingController {
     DPIOModules,
     PerformanceCounters,
     CommunicationSynchronizer,
     SignalProcessingManagement,
-    Other
+    Other,
 }
 
-impl PCIClass for SignalProcessingController {
-    fn from_subclass(subclass: u8) -> Self {
+impl SignalProcessingController {
+    pub fn from_subclass(subclass: u8) -> Self {
         match subclass {
             0x0 => Self::DPIOModules,
             0x1 => Self::PerformanceCounters,
             0x10 => Self::CommunicationSynchronizer,
             0x20 => Self::SignalProcessingManagement,
             0x80 => Self::Other,
-            _ => unreachable!()
+            _ => unreachable!(),
         }
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum ProcessingAccelerator {
-    Placeholder
+    Placeholder,
 }
 
-impl PCIClass for ProcessingAccelerator {
-    fn from_subclass(_subclass: u8) -> Self {
+impl ProcessingAccelerator {
+    pub fn from_subclass(_subclass: u8) -> Self {
         Self::Placeholder
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum NonEssentialInstrumentation {
-    Placeholder
+    Placeholder,
 }
 
-impl PCIClass for NonEssentialInstrumentation {
-    fn from_subclass(_subclass: u8) -> Self {
+impl NonEssentialInstrumentation {
+    pub fn from_subclass(_subclass: u8) -> Self {
         Self::Placeholder
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum CoProcessor {
-    Placeholder
+    Placeholder,
 }
 
-impl PCIClass for CoProcessor {
-    fn from_subclass(_subclass: u8) -> Self {
+impl CoProcessor {
+    pub fn from_subclass(_subclass: u8) -> Self {
         Self::Placeholder
     }
+}
+
+#[derive(Debug, PartialEq)]
+pub enum PCIClass {
+    Unclassified(Unclassified),
+    MassStorageController(MassStorageController),
+    NetworkController(NetworkController),
+    DisplayController(DisplayController),
+    MultimediaController(MultimediaController),
+    MemoryController(MemoryController),
+    Bridge(Bridge),
+    SimpleCommunicationController(SimpleCommunicationController),
+    BaseSystemPeripheral(BaseSystemPeripheral),
+    InputDeviceController(InputDeviceController),
+    DockingStation(DockingStation),
+    Processor(Processor),
+    SerialBusController(SerialBusController),
+    WirelessController(WirelessController),
+    IntelligentController(IntelligentController),
+    SatelliteCommunicationController(SatelliteCommunicationController),
+    EncryptionController(EncryptionController),
+    SignalProcessingController(SignalProcessingController),
+    ProcessingAccelerator(ProcessingAccelerator),
+    NonEssentialInstrumentation(NonEssentialInstrumentation),
+    CoProcessor(CoProcessor),
 }

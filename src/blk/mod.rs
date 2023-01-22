@@ -14,7 +14,7 @@ pub enum BlockDeviceError {
     FailedToReadSectors
 }
 
-pub trait BlockDevice: Send {    
+pub trait BlockDevice: Send {
     /// queues a read request
     fn read(&mut self, req: BlockRequest) -> Result<(), BlockDeviceError>;
     
