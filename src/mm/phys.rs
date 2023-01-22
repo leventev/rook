@@ -2,7 +2,7 @@ use limine::{LimineMemmapResponse, LimineMemoryMapEntryType};
 
 use spin::Mutex;
 
-use crate::{mm::PhysAddr, scheduler::start};
+use crate::mm::PhysAddr;
 
 const MAX_SEGMENT_COUNT: usize = 16;
 // 16 GiB

@@ -1,11 +1,12 @@
 use core::mem::MaybeUninit;
 
-use alloc::boxed::Box;
+use alloc::{boxed::Box, vec::Vec};
 use spin::Mutex;
 
 use crate::{
-    arch::x86_64::{inb, inw, outb},
+    arch::x86_64::{inb, inw, outb, outw},
     blk,
+    pci::{self, PCIDevice},
 };
 
 bitflags::bitflags! {
@@ -81,23 +82,59 @@ const ST_BUSY: u8 = 1 << 7;
 
 const SECTOR_SIZE: usize = 512;
 
-pub const ATA_PRIMARY_BUS: u16 = 0x1F0;
-pub const ATA_SECONDARY_BUS: u16 = 0x170;
+pub const ATA_PRIMARY_BUS_PORT: u16 = 0x1F0;
+pub const ATA_PRIMARY_BUS_CONTROL_PORT: u16 = 0x3F6;
+pub const ATA_SECONDARY_BUS_PORT: u16 = 0x170;
+pub const ATA_SECONDARY_BUS_CONTROL_PORT: u16 = 0x376;
+
 pub const ATA_MASTER_DRIVE: u8 = 0xA0;
 pub const ATA_SLAVE_DRIVE: u8 = 0xB0;
 
-/// this is a wrapper for the ATA controller
-struct ATADevice {
+bitflags::bitflags! {
+    pub struct ATAProgIf: u8 {
+        const PRIMARY_CHANNEL_PCI_NATIVE = 1 << 0;
+        const PRIMARY_CHANNEL_SWITCH_MODE = 1 << 1;
+        const SECONDARY_CHANNEL_PCI_NATIVE = 1 << 2;
+        const SECONDARY_CHANNEL_SWITCH_MODE = 1 << 3;
+        const DMA_SUPPORT = 1 << 7;
+    }
+}
+
+/// Describes an ATA controller, a controller can have 4 drives
+#[derive(Debug)]
+struct ATAController {
+    /// Index in the controller list
+    index: usize,
+
+    /// Current used bus
     current_bus: u16,
+
+    /// Current used drive
     current_drive: u8,
+
+    /// IO port of the primary bus
+    primary_bus_port: u16,
+
+    /// IO port of the secondary bus
+    secondary_bus_port: u16,
+
+    /// Control port of the primary bus
+    primary_bus_control_port: u16,
+
+    /// Control port of the secondary bus
+    secondary_bus_control_port: u16,
 }
 
-/// this is a wrapper for an ATA drive
+/// Describes an ATA drive
 struct ATADrive {
-    size: usize, // lba
+    /// Index of the controller the driver is associated with
+    controller_idx: usize,
+
+    /// Size of the drive in LBAs
+    size: usize,
 }
 
-static ATA_DEVICE: Mutex<ATADevice> = Mutex::new(ATADevice::new());
+static ATA_CONTROLLERS: Mutex<Vec<ATAController>> = Mutex::new(Vec::new());
 
 impl blk::BlockDevice for ATADrive {
     fn read(&mut self, req: blk::BlockRequest) -> Result<(), blk::BlockDeviceError> {
@@ -121,48 +158,73 @@ impl blk::BlockDevice for ATADrive {
     }
 }
 
-impl ATADevice {
+impl ATAController {
     fn select_drive(&mut self, bus: u16, drive: u8) {
-        assert!(
-            (bus == ATA_PRIMARY_BUS || bus == ATA_SECONDARY_BUS)
-                && (drive == ATA_MASTER_DRIVE || drive == ATA_SLAVE_DRIVE)
-        );
+        assert!((bus == 0 || bus == 1) && (drive == 0 || drive == 1));
 
         // only select drive when its necessary
         if bus == self.current_bus && drive == self.current_drive {
             return;
         }
 
+        let drive_val = if drive == 0 {
+            ATA_MASTER_DRIVE
+        } else {
+            ATA_SLAVE_DRIVE
+        };
+
         self.current_bus = bus;
         self.current_drive = drive;
-        outb(bus + REG_DRIVE, drive);
+        self.write_io8(REG_DRIVE, drive_val);
     }
 
-    const fn new() -> ATADevice {
-        ATADevice {
-            current_bus: 0,
-            current_drive: 0,
+    #[inline]
+    fn current_io_port(&self) -> u16 {
+        if self.current_bus == 0 {
+            self.primary_bus_port
+        } else {
+            self.secondary_bus_port
         }
+    }
+
+    #[inline]
+    fn write_io8(&self, reg: u16, val: u8) {
+        outb(self.current_io_port() + reg, val);
+    }
+
+    #[inline]
+    fn read_io8(&self, reg: u16) -> u8 {
+        inb(self.current_io_port() + reg)
+    }
+
+    #[inline]
+    fn write_io16(&self, reg: u16, val: u16) {
+        outw(self.current_io_port() + reg, val);
+    }
+
+    #[inline]
+    fn read_io16(&self, reg: u16) -> u16 {
+        inw(self.current_io_port() + reg)
     }
 
     fn try_identify(&mut self, bus: u16, drive: u8) -> Option<ATADrive> {
         self.select_drive(bus, drive);
 
-        outb(bus + REG_SECCOUNT0, 0);
-        outb(bus + REG_LBA0, 0);
-        outb(bus + REG_LBA1, 0);
-        outb(bus + REG_LBA2, 0);
+        self.write_io8(REG_SECCOUNT0, 0);
+        self.write_io8(REG_LBA0, 0);
+        self.write_io8(REG_LBA1, 0);
+        self.write_io8(REG_LBA2, 0);
 
-        outb(bus + REG_COMMAND, CMD_IDENTIFY);
+        self.write_io8(REG_COMMAND, CMD_IDENTIFY);
 
-        let mut status = inb(bus + REG_STATUS);
+        let mut status = self.read_io8(REG_STATUS);
         if status == 0 {
             return None;
         }
 
-        while inb(bus + REG_STATUS) & ST_BUSY > 0 {
-            let lba1 = inb(bus + REG_LBA1);
-            let lba2 = inb(bus + REG_LBA2);
+        while self.read_io8(REG_STATUS) & ST_BUSY > 0 {
+            let lba1 = self.read_io8(REG_LBA1);
+            let lba2 = self.read_io8(REG_LBA2);
             if lba1 != 0 || lba2 != 0 {
                 // TODO: ATAPI
                 return None;
@@ -170,7 +232,7 @@ impl ATADevice {
         }
 
         while (status & ST_DATA_REQUEST_READY) == 0 && (status & ST_ERROR) == 0 {
-            status = inb(bus + REG_STATUS);
+            status = self.read_io8(REG_STATUS);
         }
 
         if status & ST_ERROR > 0 {
@@ -184,7 +246,7 @@ impl ATADevice {
         for i in 0..SECTOR_SIZE / 2 {
             unsafe {
                 let addr = ptr.offset(i as isize);
-                let data = inw(bus + REG_DATA);
+                let data = self.read_io16(REG_DATA);
                 *addr = data;
             }
         }
@@ -192,35 +254,95 @@ impl ATADevice {
         let max_lba = unsafe { *((device_data.as_ptr()).offset(ID_MAX_LBA) as *const u32) };
 
         Some(ATADrive {
+            controller_idx: self.index,
             size: max_lba as usize,
         })
     }
 }
 
-pub fn init() -> bool {
-    let mut device = ATA_DEVICE.lock();
+fn init_controllers(devices: Vec<&PCIDevice>) {
+    println!("init controllers");
 
-    for bus in [ATA_PRIMARY_BUS, ATA_SECONDARY_BUS] {
-        for drive in [ATA_MASTER_DRIVE, ATA_SLAVE_DRIVE] {
-            if let Some(identified_drive) = device.try_identify(bus, drive) {
-                let bus_str = match bus {
-                    ATA_PRIMARY_BUS => "primary",
-                    _ => "secondary",
-                };
+    let mut controllers = ATA_CONTROLLERS.lock();
 
-                let drive_str = match drive {
-                    ATA_MASTER_DRIVE => "master",
-                    _ => "slave",
-                };
+    for pci_device in devices.iter() {
+        println!("{} {}", pci_device.bus, pci_device.dev);
+        // TODO: support polling
+        if pci_device.prog_if & ATAProgIf::DMA_SUPPORT.bits == 0 {
+            println!("ATA: device does not support DMA");
+            continue;
+        }
 
-                println!(
-                    "ATA: found device on the {} bus/{} drive with LBA count: {}",
-                    bus_str, drive_str, identified_drive.size
-                );
-                blk::register(Box::new(identified_drive));
+        let primary_bus_pci_native =
+            pci_device.prog_if & ATAProgIf::PRIMARY_CHANNEL_PCI_NATIVE.bits > 0;
+        let secondary_bus_pci_native =
+            pci_device.prog_if & ATAProgIf::SECONDARY_CHANNEL_PCI_NATIVE.bits > 0;
+
+        let primary_bus_ports = if primary_bus_pci_native {
+            unsafe {
+                (
+                    (pci_device.specific.type0.bar0 & 0xFFF0) as u16,
+                    (pci_device.specific.type0.bar1 & 0xFFF0) as u16,
+                )
+            }
+        } else {
+            (ATA_PRIMARY_BUS_PORT, ATA_PRIMARY_BUS_CONTROL_PORT)
+        };
+
+        let secondary_bus_ports = if secondary_bus_pci_native {
+            unsafe {
+                (
+                    (pci_device.specific.type0.bar2 & 0xFFF0) as u16,
+                    (pci_device.specific.type0.bar3 & 0xFFF0) as u16,
+                )
+            }
+        } else {
+            (ATA_SECONDARY_BUS_PORT, ATA_SECONDARY_BUS_CONTROL_PORT)
+        };
+
+        let mut controller = ATAController {
+            index: controllers.len(),
+            current_bus: 0,
+            current_drive: 0,
+            primary_bus_port: primary_bus_ports.0,
+            primary_bus_control_port: primary_bus_ports.1,
+            secondary_bus_port: secondary_bus_ports.0,
+            secondary_bus_control_port: secondary_bus_ports.1,
+        };
+
+        for bus in 0..=1 {
+            for drive in 0..=1 {
+                if let Some(identified_drive) = controller.try_identify(bus, drive) {
+                    let bus_str = match bus {
+                        0 => "primary",
+                        _ => "secondary",
+                    };
+
+                    let drive_str = match drive {
+                        0 => "master",
+                        _ => "slave",
+                    };
+
+                    println!(
+                        "ATA: found device on the {} bus/{} drive with LBA count: {}",
+                        bus_str, drive_str, identified_drive.size
+                    );
+                    blk::register(Box::new(identified_drive));
+                }
             }
         }
+
+        controllers.push(controller);
     }
+}
+
+pub fn init() -> bool {
+    pci::match_devices(
+        pci::class::PCIClass::MassStorageController(
+            pci::class::MassStorageController::IDEController,
+        ),
+        init_controllers,
+    );
 
     true
 }

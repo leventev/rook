@@ -10,6 +10,7 @@ mod pit;
 // FIXME: dont include assembly files associated with disabled modules in the build
 
 /// Kernel module
+#[derive(Debug)]
 struct KernelModule<'a> {
     /// Returns whether the function got initialized successfully
     init: fn() -> bool,

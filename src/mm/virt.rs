@@ -1,7 +1,6 @@
 use crate::arch::x86_64::get_cr3;
 use crate::arch::x86_64::paging::PageFlags;
 use crate::mm::{PhysAddr, VirtAddr};
-use crate::scheduler::start;
 use spin::Mutex;
 
 use super::phys;

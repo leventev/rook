@@ -1,85 +1,85 @@
 use self::class::*;
 use crate::arch::x86_64::*;
-use alloc::{boxed::Box, fmt, vec::Vec};
+use alloc::{fmt, vec::Vec};
 use spin::Mutex;
 
-mod class;
+pub mod class;
 
 #[derive(Clone, Copy, Debug)]
-struct PCIDeviceType0 {
-    bar0: u32,
-    bar1: u32,
-    bar2: u32,
-    bar3: u32,
-    bar4: u32,
-    bar5: u32,
-    cardbus_cis_pointer: u32,
-    subsystem_vendor_id: u16,
-    subsystem_id: u16,
-    expansion_rom_base_address: u32,
-    capabilities_pointer: u8,
-    interrupt_line: u8,
-    interrupt_pin: u8,
-    min_grant: u8,
-    max_latency: u8,
+pub struct PCIDeviceType0 {
+    pub bar0: u32,
+    pub bar1: u32,
+    pub bar2: u32,
+    pub bar3: u32,
+    pub bar4: u32,
+    pub bar5: u32,
+    pub cardbus_cis_pointer: u32,
+    pub subsystem_vendor_id: u16,
+    pub subsystem_id: u16,
+    pub expansion_rom_base_address: u32,
+    pub capabilities_pointer: u8,
+    pub interrupt_line: u8,
+    pub interrupt_pin: u8,
+    pub min_grant: u8,
+    pub max_latency: u8,
 }
 
 #[derive(Clone, Copy, Debug)]
-struct PCIDeviceType1 {
-    bar0: u32,
-    bar1: u32,
-    primary_bus_number: u8,
-    secondary_bus_number: u8,
-    subordinate_bus_number: u8,
-    secondary_latency_timer: u8,
-    io_base: u8,
-    io_limit: u8,
-    secondary_status: u16,
-    memory_base: u16,
-    memory_limit: u16,
-    prefetchable_memory_base: u16,
-    prefetchable_memory_limit: u16,
-    prefetchable_base_upper: u32,
-    prefetchable_limit_upper: u32,
-    io_base_upper: u16,
-    io_limit_upper: u16,
-    capability_pointer: u8,
-    expansion_rom_base_address: u32,
-    interrupt_line: u8,
-    interrupt_pin: u8,
-    bridge_control: u16,
+pub struct PCIDeviceType1 {
+    pub bar0: u32,
+    pub bar1: u32,
+    pub primary_bus_number: u8,
+    pub secondary_bus_number: u8,
+    pub subordinate_bus_number: u8,
+    pub secondary_latency_timer: u8,
+    pub io_base: u8,
+    pub io_limit: u8,
+    pub secondary_status: u16,
+    pub memory_base: u16,
+    pub memory_limit: u16,
+    pub prefetchable_memory_base: u16,
+    pub prefetchable_memory_limit: u16,
+    pub prefetchable_base_upper: u32,
+    pub prefetchable_limit_upper: u32,
+    pub io_base_upper: u16,
+    pub io_limit_upper: u16,
+    pub capability_pointer: u8,
+    pub expansion_rom_base_address: u32,
+    pub interrupt_line: u8,
+    pub interrupt_pin: u8,
+    pub bridge_control: u16,
 }
 
 #[derive(Clone, Copy, Debug)]
-struct PCIDeviceType2 {
-    cardbus_socket_base_address: u32,
-    capabilites_list_off: u8,
-    secondary_status: u16,
-    pci_bus_number: u8,
-    cardbus_bus_number: u8,
-    subordinate_bus_number: u8,
-    cardbus_latency_timer: u8,
-    memory_base_address_0: u32,
-    memory_limit_0: u32,
-    memory_base_address_1: u32,
-    memory_limit_1: u32,
-    io_base_address_0: u32,
-    io_limit_0: u32,
-    io_base_address_1: u32,
-    io_limit_1: u32,
-    interrupt_line: u8,
-    interrupt_pin: u8,
-    bridge_control: u16,
-    subsystem_device_id: u16,
-    subsystem_vendor_id: u16,
-    pc_card_legacy_mode_base_address: u32,
+pub struct PCIDeviceType2 {
+    pub cardbus_socket_base_address: u32,
+    pub capabilites_list_off: u8,
+    pub secondary_status: u16,
+    pub pci_bus_number: u8,
+    pub cardbus_bus_number: u8,
+    pub subordinate_bus_number: u8,
+    pub cardbus_latency_timer: u8,
+    pub memory_base_address_0: u32,
+    pub memory_limit_0: u32,
+    pub memory_base_address_1: u32,
+    pub memory_limit_1: u32,
+    pub io_base_address_0: u32,
+    pub io_limit_0: u32,
+    pub io_base_address_1: u32,
+    pub io_limit_1: u32,
+    pub interrupt_line: u8,
+    pub interrupt_pin: u8,
+    pub bridge_control: u16,
+    pub subsystem_device_id: u16,
+    pub subsystem_vendor_id: u16,
+    pub pc_card_legacy_mode_base_address: u32,
 }
 
 #[repr(C)]
-union PCIDeviceExtended {
-    type0: PCIDeviceType0,
-    type1: PCIDeviceType1,
-    type2: PCIDeviceType2,
+pub union PCIDeviceExtended {
+    pub type0: PCIDeviceType0,
+    pub type1: PCIDeviceType1,
+    pub type2: PCIDeviceType2,
 }
 
 fn class_from_u8(classcode: u8, subclass: u8) -> PCIClass {
@@ -118,23 +118,23 @@ fn class_from_u8(classcode: u8, subclass: u8) -> PCIClass {
 }
 
 pub struct PCIDevice {
-    bus: u8,
-    dev: u8,
-    function: u8,
+    pub bus: u8,
+    pub dev: u8,
+    pub function: u8,
 
-    vendor_id: u16,
-    device_id: u16,
-    command: u16,
-    status: u16,
-    revision_id: u8,
-    prog_if: u8,
-    class: PCIClass,
-    cache_line_size: u8,
-    latency_timer: u8,
-    header_type: u8,
-    bist: u8,
+    pub vendor_id: u16,
+    pub device_id: u16,
+    pub command: u16,
+    pub status: u16,
+    pub revision_id: u8,
+    pub prog_if: u8,
+    pub class: PCIClass,
+    pub cache_line_size: u8,
+    pub latency_timer: u8,
+    pub header_type: u8,
+    pub bist: u8,
 
-    specific: PCIDeviceExtended,
+    pub specific: PCIDeviceExtended,
 }
 
 impl fmt::Display for PCIDevice {
@@ -428,6 +428,18 @@ fn read_bus(devices: &mut Vec<PCIDevice>, bus: u8) {
     }
 }
 
+// TODO: avoid cloning
+pub fn match_devices(class: PCIClass, func: fn(Vec<&PCIDevice>)) {
+    let devices = PCI_DEVICES.lock();
+    let mut matched: Vec<&PCIDevice> = Vec::new();
+    for dev in devices.iter() {
+        if dev.class == class {
+            matched.push(dev);
+        }
+    }
+    func(matched);
+}
+
 pub fn init() {
     let mut devices = PCI_DEVICES.lock();
 
@@ -443,9 +455,5 @@ pub fn init() {
             if vendor_id == 0xFFF { break; }
             read_bus(&mut devices, func);
         }
-    }
-
-    for device in devices.iter() {
-        println!("{}", device);
     }
 }

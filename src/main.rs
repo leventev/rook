@@ -74,35 +74,13 @@ pub extern "C" fn _start() -> ! {
         .boot_time;
 
     time::init(boot_time as u64);
-    
+
     mm::kalloc::init();
 
     pci::init();
-
-    hcf();
-
     drivers::init();
-    
-    scheduler::init();
-    
-    scheduler::spawn_kernel_thread(|| {
-        for i in 0..10 {
-            println!("thread 1 {}", i);
-        }
-    });
-    
-    scheduler::spawn_kernel_thread(|| {
-        for i in 20..30 {
-            println!("thread 2 {}", i);
-        }
-    });
-    
-    scheduler::spawn_kernel_thread(|| {
-        for i in 10..20 {
-            println!("thread 3 {}", i);
-        }
-    });
 
+    scheduler::init();
     scheduler::start();
 }
 
