@@ -19,12 +19,13 @@ mod time;
 mod scheduler;
 mod blk;
 mod pci;
+mod dma;
 
 use limine::{
     LimineBootInfoRequest, LimineBootTimeRequest, LimineHhdmRequest, LimineMemmapRequest,
 };
 
-use crate::arch::x86_64::{idt, pic, stacktrace};
+use crate::{arch::x86_64::{idt, pic, stacktrace}};
 
 static BOOTLOADER_INFO: LimineBootInfoRequest = LimineBootInfoRequest::new(0);
 static MMAP_INFO: LimineMemmapRequest = LimineMemmapRequest::new(0);
@@ -81,7 +82,12 @@ pub extern "C" fn _start() -> ! {
     drivers::init();
 
     scheduler::init();
+    scheduler::spawn_kernel_thread(main_init_thread);
     scheduler::start();
+}
+
+fn main_init_thread() {
+    blk::parse_partition_tables();
 }
 
 #[panic_handler]

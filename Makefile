@@ -1,7 +1,6 @@
 CARGOFLAGS=--target x86_64-rook.json
 RUSTFLAGS=-Cforce-frame-pointers=yes
-ASFLAGS=-felf64 -g
-QEMUFLAGS=-m 128M -d int -serial stdio -vga std -no-reboot -no-shutdown\
+QEMUFLAGS=-m 128M -d int -monitor stdio -vga std -no-reboot -no-shutdown\
 -drive file=$(IMAGE),if=ide,media=disk,format=raw\
 
 BUILDDIR=bin
@@ -15,10 +14,7 @@ all: image
 $(BUILDDIR):
 	mkdir -p $(BUILDDIR)
 
-%.o: %.s
-	nasm $(ASFLAGS) $< -o $(addprefix $(BUILDDIR)/,$(notdir $@))
-
-build: $(BUILDDIR) $(ASMOBJ)
+build: $(BUILDDIR)
 	cargo build $(CARGOFLAGS)
 
 image: build

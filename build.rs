@@ -72,7 +72,7 @@ fn parse_kernel_config() -> Vec<String> {
 fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     let mut asm_source_files: Vec<String> = Vec::new();
     let mut asm_obj_files: Vec<String> = Vec::new();
-
+    
     find_asm_files(&mut asm_source_files, String::from("src"));
     build_asm_files(&asm_source_files, &mut asm_obj_files);
 

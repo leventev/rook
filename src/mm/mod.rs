@@ -5,7 +5,7 @@ pub mod kalloc;
 use core::{fmt, ops};
 
 #[repr(transparent)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct VirtAddr(u64);
 
 impl VirtAddr {
@@ -68,7 +68,7 @@ impl fmt::Display for VirtAddr {
 }
 
 #[repr(transparent)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct PhysAddr(u64);
 
 impl PhysAddr {

@@ -37,6 +37,9 @@ extern "C" {
 
     #[link_name = "x86_64_get_rflags"]
     pub fn get_rflags() -> u64;
+
+    #[link_name = "x86_64_block_task"]
+    pub fn block_task();
 }
 
 #[inline]

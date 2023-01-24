@@ -63,9 +63,73 @@ x86_64_switch_task:
     mov gs, rax
 
     pop rax
+
     ; add es, ds, fs, gs
     add rsp, 32
 
     ; the iret parameters are already pushed to the stack
     iretq
+.end:
+
+extern __block_current_thread
+extern save_regs
+global x86_64_block_task:function (x86_64_block_task.end - x86_64_block_task)
+x86_64_block_task:
+    push rbp
+    mov rbp, rsp
+
+    ; push ss
+    mov rax, ss
+    push rax
+
+    ; push rsp
+    mov rax, rsp
+    push rax
+
+    ; push rflags
+    pushfq
+
+    ; push cs
+    mov rax, cs
+    push rax
+
+    ; push rip
+    mov rax, .return
+    push rax
+
+    mov rax, gs
+    push rax
+
+    mov rax, fs
+    push rax
+
+    mov rax, ds
+    push rax
+
+    mov rax, es
+    push rax
+
+    push rbp
+    push r15
+    push r14
+    push r13
+    push r12
+    push r11
+    push r10
+    push r9
+    push r8
+    push rdi
+    push rsi
+    push rdx
+    push rcx
+    push rbx
+    push rax
+
+    ; save registers
+    call save_regs
+    call  __block_current_thread
+
+.return:
+    pop rbp
+    ret
 .end:

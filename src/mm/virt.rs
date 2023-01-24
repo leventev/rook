@@ -473,6 +473,19 @@ impl VirtualMemoryManager {
             println!("VMM: unmapped Virt {}", virt);
         }
     }
+
+    fn get_phys_from_virt(&self, virt: VirtAddr) -> PhysAddr {
+        let pml4_idx = virt.pml4_index();
+        let pml3_idx = virt.pml3_index();
+        let pml2_idx = virt.pml2_index();
+        let pml1_idx = virt.pml1_index();
+
+        let offset = virt.get() % 4096;
+
+        let pml1 = self.get_pml1(pml4_idx, pml3_idx, pml2_idx, pml1_idx);
+
+        PhysAddr::new(pml1 & 0xfffffffffffff000 + offset)
+    }
 }
 
 static VIRTUAL_MEMORY_MANAGER: Mutex<VirtualMemoryManager> = Mutex::new(VirtualMemoryManager {
@@ -503,4 +516,9 @@ pub fn map(virt: VirtAddr, phys: PhysAddr, flags: PageFlags) {
 pub fn unmap(virt: VirtAddr) {
     let vmm = VIRTUAL_MEMORY_MANAGER.lock();
     vmm.unmap(virt);
+}
+
+pub fn get_phys_from_virt(virt: VirtAddr) -> PhysAddr {
+    let vmm = VIRTUAL_MEMORY_MANAGER.lock();
+    vmm.get_phys_from_virt(virt)
 }

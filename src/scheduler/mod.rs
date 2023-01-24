@@ -2,6 +2,7 @@ use crate::{
     arch::x86_64::{self, paging::PageFlags},
     mm::{phys, virt, VirtAddr, PhysAddr},
 };
+use core::arch::asm;
 
 use core::fmt;
 
@@ -20,7 +21,7 @@ const TICKS_PER_THREAD_SWITCH: usize = 20;
 const MAX_TASKS: usize = 64;
 
 #[repr(C, packed)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct RegisterState {
     rax: u64,
     rbx: u64,
@@ -176,9 +177,10 @@ impl Scheduler {
 
     /// saves the registers of the currently running thread
     fn save_regs(&mut self, regs: RegisterState) {
+       // println!("{:?}", regs);
         let tid = *self.current_queue.front().unwrap();
         // TODO: simply iterating over it may be faster
-        let thread = self.get_running_thread(tid);
+        let thread = self.get_running_thread(tid).unwrap();
         thread.regs = regs;
     }
 
@@ -203,6 +205,41 @@ impl Scheduler {
         false
     }
 
+    fn block_thread(&mut self, tid: usize) {
+        assert!(self.current_queue.len() != 0);
+
+        // check whether we are removing the current thread
+        let is_current_thread = *self.current_queue.front().unwrap() == tid;
+
+        // find the thread and remove it
+        let current_queue_idx = self
+            .current_queue
+            .iter()
+            .position(|thread| *thread == tid)
+            .unwrap();
+
+        self.current_queue.remove(current_queue_idx);
+
+        // move the thread from the running thread to the busy threads
+        let running_threads_idx = self
+            .running_threads
+            .iter()
+            .position(|thread| thread.id == tid)
+            .unwrap();
+
+        let thread = self.running_threads.remove(running_threads_idx);
+        self.busy_threads.push(thread);
+
+        if is_current_thread {
+            self.switch_thread();
+        }
+    }
+
+    fn block_current_thread(&mut self) {
+        let tid = *self.current_queue.front().unwrap();
+        self.block_thread(tid);
+    }
+
     /// removes current thread and switches to the next one
     fn remove_current_thread(&mut self) -> ! {
         let removed_thread = self.current_queue.pop_front().unwrap();
@@ -218,11 +255,10 @@ impl Scheduler {
         self.switch_thread();
     }
 
-    fn get_running_thread(&mut self, tid: usize) -> &mut Thread {
+    fn get_running_thread(&mut self, tid: usize) -> Option<&mut Thread> {
         self.running_threads
             .iter_mut()
             .find(|thread| thread.id == tid)
-            .unwrap()
     }
 
     fn fill_queue(&mut self) {
@@ -255,7 +291,7 @@ impl Scheduler {
 
         // the next thread because its always the current thread
         let next_thread_id = *self.current_queue.front().unwrap();
-        let next_thread = self.get_running_thread(next_thread_id);
+        let next_thread = self.get_running_thread(next_thread_id).unwrap();
 
         if SCHEDULER.is_locked() {
             // we have to force unlock it because we wont return
@@ -264,7 +300,8 @@ impl Scheduler {
             }
         }
 
-        println!("next thread: {}", next_thread.id);
+        //println!("switch thread: {}", next_thread_id);
+
         unsafe {
             // push the registers on the stack and switch tasks
             x86_64_switch_task(next_thread.regs);
@@ -317,8 +354,9 @@ pub fn init() {
     sched.spawn_kernel_thread(|| loop {
         println!("sentinel thread");
         loop {
+            x86_64::enable_interrupts();
+            unsafe { asm!("hlt"); }
             // halt
-            x86_64::disable_interrupts();
         }
     });
 }
@@ -344,13 +382,38 @@ pub fn tick() {
 pub fn start() -> ! {
     let mut sched = SCHEDULER.lock();
 
+    println!("scheduler start");
+
     // fill the queue
     sched.fill_queue();
     sched.switch_thread();
 }
 
+pub fn remove_running_thread() {
+    x86_64::disable_interrupts();
+
+    let mut sched = SCHEDULER.lock();
+    sched.remove_current_thread();
+}
+
+pub fn current_tid() -> usize {
+    let sched = SCHEDULER.lock();
+    *sched.current_queue.front().unwrap()
+}
+
 #[no_mangle]
-pub fn save_regs(regs: RegisterState) {
+extern "C" fn __block_current_thread() {
+    let mut sched = SCHEDULER.lock();
+    sched.block_current_thread();
+}
+
+pub fn block_current_thread() {
+    x86_64::disable_interrupts();
+    unsafe { x86_64::block_task(); }
+}
+
+#[no_mangle]
+pub extern "C" fn save_regs(regs: RegisterState) {
     assert!(!x86_64::interrupts_enabled());
     let mut sched = SCHEDULER.lock();
     sched.save_regs(regs);
@@ -364,11 +427,4 @@ pub fn ticks_until_switch() -> u64 {
         (TICKS_PER_THREAD_SWITCH - sched.current_ticks) as u64
     };
     val
-}
-
-pub fn remove_running_thread() {
-    x86_64::disable_interrupts();
-
-    let mut sched = SCHEDULER.lock();
-    sched.remove_current_thread();
 }

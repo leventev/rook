@@ -167,86 +167,91 @@ const CONFIG_ADDRESS: u16 = 0xCF8;
 const CONFIG_DATA: u16 = 0xCFC;
 
 // common header
-const VENDOR_ID_OFF: u8 = 0x0;
-const DEVICE_ID_OFF: u8 = 0x2;
-const DEVICE_COMMAND_OFF: u8 = 0x4;
-const DEVICE_STATUS_OFF: u8 = 0x6;
-const DEVICE_REVISION_ID_OFF: u8 = 0x8;
-const DEVICE_PROG_IF_OFF: u8 = 0x9;
-const DEVICE_SUBCLASS_OFF: u8 = 0xA;
-const DEVICE_CLASS_CODE_OFF: u8 = 0xB;
-const DEVICE_CACHE_LINE_SIZE_OFF: u8 = 0xC;
-const DEVICE_LATENCY_TIMER_OFF: u8 = 0xD;
-const DEVICE_HEADER_TYPE_OFF: u8 = 0xE;
-const DEVICE_BIST_OFF: u8 = 0xF;
+pub const VENDOR_ID_OFF: u8 = 0x0;
+pub const DEVICE_ID_OFF: u8 = 0x2;
+pub const DEVICE_COMMAND_OFF: u8 = 0x4;
+pub const DEVICE_STATUS_OFF: u8 = 0x6;
+pub const DEVICE_REVISION_ID_OFF: u8 = 0x8;
+pub const DEVICE_PROG_IF_OFF: u8 = 0x9;
+pub const DEVICE_SUBCLASS_OFF: u8 = 0xA;
+pub const DEVICE_CLASS_CODE_OFF: u8 = 0xB;
+pub const DEVICE_CACHE_LINE_SIZE_OFF: u8 = 0xC;
+pub const DEVICE_LATENCY_TIMER_OFF: u8 = 0xD;
+pub const DEVICE_HEADER_TYPE_OFF: u8 = 0xE;
+pub const DEVICE_BIST_OFF: u8 = 0xF;
 
 // header type 0
-const DEVICE_TYPE0_BAR0_OFF: u8 = 0x10;
-const DEVICE_TYPE0_BAR1_OFF: u8 = 0x14;
-const DEVICE_TYPE0_BAR2_OFF: u8 = 0x18;
-const DEVICE_TYPE0_BAR3_OFF: u8 = 0x1c;
-const DEVICE_TYPE0_BAR4_OFF: u8 = 0x20;
-const DEVICE_TYPE0_BAR5_OFF: u8 = 0x24;
-const DEVICE_TYPE0_CARDBUS_POINTER_OFF: u8 = 0x28;
-const DEVICE_TYPE0_SUBSYSTEM_VENDOR_ID_OFF: u8 = 0x2C;
-const DEVICE_TYPE0_SUBSYSTEM_ID_OFF: u8 = 0x2E;
-const DEVICE_TYPE0_EXPANSION_ROM_BASE_ADDRESS_OFF: u8 = 0x30;
-const DEVICE_TYPE0_CAPABILITIES_POINTER_OFF: u8 = 0x34;
-const DEVICE_TYPE0_INTERRUPT_LINE_OFF: u8 = 0x3C;
-const DEVICE_TYPE0_INTERRUPT_PIN_OFF: u8 = 0x3D;
-const DEVICE_TYPE0_MIN_GRANT_OFF: u8 = 0x3E;
-const DEVICE_TYPE0_MAX_LATENCY_OFF: u8 = 0x3F;
+pub const DEVICE_TYPE0_BAR0_OFF: u8 = 0x10;
+pub const DEVICE_TYPE0_BAR1_OFF: u8 = 0x14;
+pub const DEVICE_TYPE0_BAR2_OFF: u8 = 0x18;
+pub const DEVICE_TYPE0_BAR3_OFF: u8 = 0x1c;
+pub const DEVICE_TYPE0_BAR4_OFF: u8 = 0x20;
+pub const DEVICE_TYPE0_BAR5_OFF: u8 = 0x24;
+pub const DEVICE_TYPE0_CARDBUS_POINTER_OFF: u8 = 0x28;
+pub const DEVICE_TYPE0_SUBSYSTEM_VENDOR_ID_OFF: u8 = 0x2C;
+pub const DEVICE_TYPE0_SUBSYSTEM_ID_OFF: u8 = 0x2E;
+pub const DEVICE_TYPE0_EXPANSION_ROM_BASE_ADDRESS_OFF: u8 = 0x30;
+pub const DEVICE_TYPE0_CAPABILITIES_POINTER_OFF: u8 = 0x34;
+pub const DEVICE_TYPE0_INTERRUPT_LINE_OFF: u8 = 0x3C;
+pub const DEVICE_TYPE0_INTERRUPT_PIN_OFF: u8 = 0x3D;
+pub const DEVICE_TYPE0_MIN_GRANT_OFF: u8 = 0x3E;
+pub const DEVICE_TYPE0_MAX_LATENCY_OFF: u8 = 0x3F;
 
 // header type 1
-const DEVICE_TYPE1_BAR0_OFF: u8 = 0x10;
-const DEVICE_TYPE1_BAR1_OFF: u8 = 0x14;
-const DEVICE_TYPE1_PRIMARY_BUS_NUMBER_OFF: u8 = 0x18;
-const DEVICE_TYPE1_SECONDARY_BUS_NUMBER_OFF: u8 = 0x19;
-const DEVICE_TYPE1_SUBORDINATE_BUS_NUMBER_OFF: u8 = 0x1A;
-const DEVICE_TYPE1_SECONDARY_LATENCY_TIMER_OFF: u8 = 0x1B;
-const DEVICE_TYPE1_IO_BASE_OFF: u8 = 0x1C;
-const DEVICE_TYPE1_IO_LIMIT_OFF: u8 = 0x1D;
-const DEVICE_TYPE1_SECONDARY_STATUS_OFF: u8 = 0x1E;
-const DEVICE_TYPE1_MEMORY_BASE_OFF: u8 = 0x20;
-const DEVICE_TYPE1_MEMORY_LIMIT_OFF: u8 = 0x22;
-const DEVICE_TYPE1_PREFETCHABLE_MEMORY_BASE_OFF: u8 = 0x24;
-const DEVICE_TYPE1_PREFETCHABLE_MEMORY_LIMIT_OFF: u8 = 0x26;
-const DEVICE_TYPE1_PREFETCHABLE_MEMORY_UPPER_BASE_OFF: u8 = 0x28;
-const DEVICE_TYPE1_PREFETCHABLE_MEMORY_UPPER_LIMIT_OFF: u8 = 0x2C;
-const DEVICE_TYPE1_IO_UPPER_BASE_OFF: u8 = 0x30;
-const DEVICE_TYPE1_IO_UPPER_LIMIT_OFF: u8 = 0x32;
-const DEVICE_TYPE1_CAPABILITY_POINTER_OFF: u8 = 0x34;
-const DEVICE_TYPE1_EXPANSION_ROM_BASE_ADDRESS_OFF: u8 = 0x38;
-const DEVICE_TYPE1_INTERRUPT_LINE_OFF: u8 = 0x3C;
-const DEVICE_TYPE1_INTERRUPT_PIN_OFF: u8 = 0x3D;
-const DEVICE_TYPE1_BRIDGE_CONTROL_OFF: u8 = 0x3E;
+pub const DEVICE_TYPE1_BAR0_OFF: u8 = 0x10;
+pub const DEVICE_TYPE1_BAR1_OFF: u8 = 0x14;
+pub const DEVICE_TYPE1_PRIMARY_BUS_NUMBER_OFF: u8 = 0x18;
+pub const DEVICE_TYPE1_SECONDARY_BUS_NUMBER_OFF: u8 = 0x19;
+pub const DEVICE_TYPE1_SUBORDINATE_BUS_NUMBER_OFF: u8 = 0x1A;
+pub const DEVICE_TYPE1_SECONDARY_LATENCY_TIMER_OFF: u8 = 0x1B;
+pub const DEVICE_TYPE1_IO_BASE_OFF: u8 = 0x1C;
+pub const DEVICE_TYPE1_IO_LIMIT_OFF: u8 = 0x1D;
+pub const DEVICE_TYPE1_SECONDARY_STATUS_OFF: u8 = 0x1E;
+pub const DEVICE_TYPE1_MEMORY_BASE_OFF: u8 = 0x20;
+pub const DEVICE_TYPE1_MEMORY_LIMIT_OFF: u8 = 0x22;
+pub const DEVICE_TYPE1_PREFETCHABLE_MEMORY_BASE_OFF: u8 = 0x24;
+pub const DEVICE_TYPE1_PREFETCHABLE_MEMORY_LIMIT_OFF: u8 = 0x26;
+pub const DEVICE_TYPE1_PREFETCHABLE_MEMORY_UPPER_BASE_OFF: u8 = 0x28;
+pub const DEVICE_TYPE1_PREFETCHABLE_MEMORY_UPPER_LIMIT_OFF: u8 = 0x2C;
+pub const DEVICE_TYPE1_IO_UPPER_BASE_OFF: u8 = 0x30;
+pub const DEVICE_TYPE1_IO_UPPER_LIMIT_OFF: u8 = 0x32;
+pub const DEVICE_TYPE1_CAPABILITY_POINTER_OFF: u8 = 0x34;
+pub const DEVICE_TYPE1_EXPANSION_ROM_BASE_ADDRESS_OFF: u8 = 0x38;
+pub const DEVICE_TYPE1_INTERRUPT_LINE_OFF: u8 = 0x3C;
+pub const DEVICE_TYPE1_INTERRUPT_PIN_OFF: u8 = 0x3D;
+pub const DEVICE_TYPE1_BRIDGE_CONTROL_OFF: u8 = 0x3E;
 
 // header type 2
-const DEVICE_TYPE2_CARDBUS_SOCKET_BASE_ADDRESS_OFF: u8 = 0x10;
-const DEVICE_TYPE2_CAPABILITIES_LIST_OFFSET_OFF: u8 = 0x14;
-const DEVICE_TYPE2_SECONDARY_STATUS_OFF: u8 = 0x16;
-const DEVICE_TYPE2_PCI_BUS_NUMBER_OFF: u8 = 0x18;
-const DEVICE_TYPE2_CARDBUS_BUS_NUMBER_OFF: u8 = 0x19;
-const DEVICE_TYPE2_SUBORDINATE_BUS_NUMBER_OFF: u8 = 0x1A;
-const DEVICE_TYPE2_CARDBUS_LATENCY_TIMER_OFF: u8 = 0x1B;
-const DEVICE_TYPE2_MEMORY_BASE_0_OFF: u8 = 0x1C;
-const DEVICE_TYPE2_MEMORY_LIMIT_0_OFF: u8 = 0x20;
-const DEVICE_TYPE2_MEMORY_BASE_1_OFF: u8 = 0x24;
-const DEVICE_TYPE2_MEMORY_LIMIT_1_OFF: u8 = 0x28;
-const DEVICE_TYPE2_IO_BASE_0_OFF: u8 = 0x2C;
-const DEVICE_TYPE2_IO_LIMIT_0_OFF: u8 = 0x30;
-const DEVICE_TYPE2_IO_BASE_1_OFF: u8 = 0x34;
-const DEVICE_TYPE2_IO_LIMIT_1_OFF: u8 = 0x38;
-const DEVICE_TYPE2_INTERRUPT_LINE_OFF: u8 = 0x3C;
-const DEVICE_TYPE2_INTERRUPT_PIN_OFF: u8 = 0x3D;
-const DEVICE_TYPE2_BRIDGE_CONTROL_OFF: u8 = 0x3E;
-const DEVICE_TYPE2_SUBSYSTEM_DEVICE_ID_OFF: u8 = 0x40;
-const DEVICE_TYPE2_SUBSYSTEM_VENDOR_ID_OFF: u8 = 0x42;
-const DEVICE_TYPE2_PC_CARD_LEGACY_MODE_BASE_ADDRESS_OFF: u8 = 0x44;
+pub const DEVICE_TYPE2_CARDBUS_SOCKET_BASE_ADDRESS_OFF: u8 = 0x10;
+pub const DEVICE_TYPE2_CAPABILITIES_LIST_OFFSET_OFF: u8 = 0x14;
+pub const DEVICE_TYPE2_SECONDARY_STATUS_OFF: u8 = 0x16;
+pub const DEVICE_TYPE2_PCI_BUS_NUMBER_OFF: u8 = 0x18;
+pub const DEVICE_TYPE2_CARDBUS_BUS_NUMBER_OFF: u8 = 0x19;
+pub const DEVICE_TYPE2_SUBORDINATE_BUS_NUMBER_OFF: u8 = 0x1A;
+pub const DEVICE_TYPE2_CARDBUS_LATENCY_TIMER_OFF: u8 = 0x1B;
+pub const DEVICE_TYPE2_MEMORY_BASE_0_OFF: u8 = 0x1C;
+pub const DEVICE_TYPE2_MEMORY_LIMIT_0_OFF: u8 = 0x20;
+pub const DEVICE_TYPE2_MEMORY_BASE_1_OFF: u8 = 0x24;
+pub const DEVICE_TYPE2_MEMORY_LIMIT_1_OFF: u8 = 0x28;
+pub const DEVICE_TYPE2_IO_BASE_0_OFF: u8 = 0x2C;
+pub const DEVICE_TYPE2_IO_LIMIT_0_OFF: u8 = 0x30;
+pub const DEVICE_TYPE2_IO_BASE_1_OFF: u8 = 0x34;
+pub const DEVICE_TYPE2_IO_LIMIT_1_OFF: u8 = 0x38;
+pub const DEVICE_TYPE2_INTERRUPT_LINE_OFF: u8 = 0x3C;
+pub const DEVICE_TYPE2_INTERRUPT_PIN_OFF: u8 = 0x3D;
+pub const DEVICE_TYPE2_BRIDGE_CONTROL_OFF: u8 = 0x3E;
+pub const DEVICE_TYPE2_SUBSYSTEM_DEVICE_ID_OFF: u8 = 0x40;
+pub const DEVICE_TYPE2_SUBSYSTEM_VENDOR_ID_OFF: u8 = 0x42;
+pub const DEVICE_TYPE2_PC_CARD_LEGACY_MODE_BASE_ADDRESS_OFF: u8 = 0x44;
 
 static PCI_DEVICES: Mutex<Vec<PCIDevice>> = Mutex::new(Vec::new());
 
+const MAX_DEVICE: u8 = 32;
+const MAX_FUNCTION: u8 = 8;
+
 fn construct_addr(bus: u8, dev: u8, function: u8) -> u32 {
+    assert!(dev < MAX_DEVICE);
+    assert!(function < MAX_FUNCTION);
     (1 << 31) | ((bus as u32) << 16) | ((dev as u32) << 11) | ((function as u32) << 8)
 }
 
@@ -268,6 +273,21 @@ fn read16(addr: u32, off: u8) -> u16 {
 fn read32(addr: u32, off: u8) -> u32 {
     write_config_addr(addr, off);
     inl(CONFIG_DATA)
+}
+
+fn write8(addr: u32, off: u8, val: u8) {
+    write_config_addr(addr, off);
+    outb(CONFIG_DATA + (off & 0b11) as u16, val);
+}
+
+fn write16(addr: u32, off: u8, val: u16) {
+    write_config_addr(addr, off);
+    outw(CONFIG_DATA + (off & 0b10) as u16, val);
+}
+
+fn write32(addr: u32, off: u8, val: u32) {
+    write_config_addr(addr, off);
+    outl(CONFIG_DATA, val);
 }
 
 fn read_header_type0(base_addr: u32) -> PCIDeviceType0 {
@@ -441,7 +461,10 @@ pub fn match_devices(class: PCIClass, func: fn(Vec<&PCIDevice>)) {
 }
 
 pub fn init() {
+    println!("lock {}", PCI_DEVICES.is_locked());
     let mut devices = PCI_DEVICES.lock();
+    println!("after lock");
+    devices.clear();
 
     let bus0_base_addr = construct_addr(0, 0, 0);
     let header_type = read8(bus0_base_addr, DEVICE_HEADER_TYPE_OFF);
@@ -456,4 +479,23 @@ pub fn init() {
             read_bus(&mut devices, func);
         }
     }
+
+    for device in devices.iter() {
+        println!("{}", device);
+    }
+}
+
+pub fn write_config8(bus: u8, dev: u8, func: u8, reg: u8, val: u8) {
+    let base_addr = construct_addr(bus, dev, func);
+    write8(base_addr, reg, val);
+}
+
+pub fn write_config16(bus: u8, dev: u8, func: u8, reg: u8, val: u16) {
+    let base_addr = construct_addr(bus, dev, func);
+    write16(base_addr, reg, val);
+}
+
+pub fn write_config32(bus: u8, dev: u8, func: u8, reg: u8, val: u32) {
+    let base_addr = construct_addr(bus, dev, func);
+    write32(base_addr, reg, val);
 }

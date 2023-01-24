@@ -8,6 +8,7 @@ use crate::arch::x86_64::paging::PageFlags;
 
 use super::{phys, virt, VirtAddr};
 
+/// pml4[509]
 const KERNEL_HEAP_START: VirtAddr = VirtAddr::new(0xfffffe8000000000);
 const KERNEL_HEAP_BASE_SIZE: usize = 128 * 1024; // 128 KiB
 
