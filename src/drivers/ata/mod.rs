@@ -158,7 +158,7 @@ extern "C" {
 
 static ATA_CONTROLLERS: Mutex<Vec<ATAController>> = Mutex::new(Vec::new());
 
-impl blk::BlockDevice for ATADisk {
+impl blk::BlockOperations for ATADisk {
     fn read(&self, req: blk::IORequest) -> Result<(), blk::BlockDeviceError> {
         let mut controllers = ATA_CONTROLLERS.lock();
         let controller = &mut controllers[self.controller_idx];
@@ -176,18 +176,6 @@ impl blk::BlockDevice for ATADisk {
 
     fn write(&self, _req: blk::IORequest) -> Result<(), blk::BlockDeviceError> {
         Ok(())
-    }
-
-    fn size(&self) -> usize {
-        self.size
-    }
-
-    fn lba_size(&self) -> usize {
-        SECTOR_SIZE
-    }
-
-    fn name(&self) -> &str {
-        "ATA"
     }
 }
 
@@ -511,7 +499,12 @@ fn init_controllers(devices: Vec<&PCIDevice>) {
     }
 
     for disk in disks {
-        blk::register_blk(Box::new(disk));
+        blk::register_blk(
+            "ATA",
+            1,
+            disk.size,
+            Box::new(disk),
+        );
     }
 }
 

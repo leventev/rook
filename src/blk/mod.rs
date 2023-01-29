@@ -7,8 +7,10 @@ use alloc::{
 };
 use spin::Mutex;
 
+const LBA_SIZE: usize = 512;
+
 struct BlockDeviceManager {
-    block_devices: Vec<Rc<Box<dyn BlockDevice>>>,
+    block_devices: Vec<Rc<BlockDevice>>,
     partitions: Vec<Partition>,
 }
 
@@ -65,26 +67,42 @@ pub enum BlockDeviceError {
     FailedToReadSectors,
 }
 
-pub trait BlockDevice: Send + Debug {
+pub trait BlockOperations: Send + Debug {
     /// Sends a read request
     fn read(&self, req: IORequest) -> Result<(), BlockDeviceError>;
 
     /// Sends a write request
     fn write(&self, req: IORequest) -> Result<(), BlockDeviceError>;
-
-    /// Get the size of the device in LBAs
-    fn size(&self) -> usize;
-
-    /// Get the size of an LBA(usually 512 bytes)
-    fn lba_size(&self) -> usize;
-
-    /// Get the name of the block device
-    fn name(&self) -> &str;
 }
 
-pub fn register_blk(dev: Box<dyn BlockDevice>) {
+#[derive(Debug)]
+pub struct BlockDevice {
+    operations: Box<dyn BlockOperations>,
+    major: usize,
+    minor: usize,
+    name: &'static str,
+    size: usize,
+}
+
+impl BlockDevice {}
+
+pub fn register_blk(name: &'static str, major: usize, size: usize, operations: Box<dyn BlockOperations>) {
     let mut blk_dev_manager = BLOCK_DEVICE_MANAGER.lock();
-    println!("BLK: added block device {}", dev.name());
+    println!("BLK: added block device {}", name);
+
+    let minor = blk_dev_manager
+        .block_devices
+        .iter()
+        .filter(|dev| dev.major == major)
+        .count();
+
+    let dev = BlockDevice {
+        operations,
+        major,
+        minor,
+        name,
+        size,
+    };
 
     let rc = Rc::new(dev);
     let mut parts = parse_partition_table(rc.clone());
@@ -97,40 +115,40 @@ pub fn register_blk(dev: Box<dyn BlockDevice>) {
 }
 
 /// Sends a read request to the target block device
-pub fn blk_read(block_device: &dyn BlockDevice, req: IORequest) -> Result<(), BlockDeviceError> {
-    assert_eq!(req.size % block_device.lba_size(), 0, "Invalid buffer size");
+pub fn blk_read(block_device: &BlockDevice, req: IORequest) -> Result<(), BlockDeviceError> {
+    assert_eq!(req.size % LBA_SIZE, 0, "Invalid buffer size");
     assert_ne!(req.size, 0, "Invalid buffer size");
     assert_eq!(
         req.buff.len(),
-        req.size * block_device.lba_size(),
+        req.size * LBA_SIZE,
         "Invalid buffer and buffer size"
     );
-    assert!(req.lba < block_device.size(), "Invalid LBA");
-    assert!(req.lba + req.size < block_device.size(), "Invalid LBA");
+    assert!(req.lba < block_device.size, "Invalid LBA");
+    assert!(req.lba + req.size < block_device.size, "Invalid LBA");
 
-    block_device.read(req)
+    block_device.operations.read(req)
 }
 
 /// Sends a write request to the target block device
-pub fn blk_write(block_device: &dyn BlockDevice, req: IORequest) -> Result<(), BlockDeviceError> {
-    assert_eq!(req.size % block_device.lba_size(), 0, "Invalid buffer size");
+pub fn blk_write(block_device: &BlockDevice, req: IORequest) -> Result<(), BlockDeviceError> {
+    assert_eq!(req.size % LBA_SIZE, 0, "Invalid buffer size");
     assert_ne!(req.size, 0, "Invalid buffer size");
     assert_eq!(
         req.buff.len(),
-        req.size * block_device.lba_size(),
+        req.size * LBA_SIZE,
         "Invalid buffer and buffer size"
     );
-    assert!(req.lba < block_device.size(), "Invalid LBA");
-    assert!(req.lba + req.size < block_device.size(), "Invalid LBA");
+    assert!(req.lba < block_device.size, "Invalid LBA");
+    assert!(req.lba + req.size < block_device.size, "Invalid LBA");
 
-    block_device.write(req)
+    block_device.operations.write(req)
 }
 
 #[derive(Debug)]
 /// Represents a partition
 struct Partition {
     /// Block device where the partition resides
-    block_device: Weak<Box<dyn BlockDevice>>,
+    block_device: Weak<BlockDevice>,
 
     /// LBA index of the start of the partition in the associated block device
     start: usize,
@@ -143,17 +161,17 @@ impl Partition {
     fn read(&self, req: IORequest) -> Result<(), BlockDeviceError> {
         let block_dev = self.block_device.upgrade().unwrap();
 
-        assert_eq!(req.size % block_dev.lba_size(), 0, "Invalid buffer size");
+        assert_eq!(req.size % LBA_SIZE, 0, "Invalid buffer size");
         assert_ne!(req.size, 0, "Invalid buffer size");
         assert_eq!(
             req.buff.len(),
-            req.size * block_dev.lba_size(),
+            req.size * LBA_SIZE,
             "Invalid buffer and buffer size"
         );
         assert!(req.lba < self.size, "Invalid LBA");
         assert!(req.lba + req.size < self.size, "Invalid LBA");
 
-        block_dev.read(IORequest {
+        block_dev.operations.read(IORequest {
             lba: self.start + req.lba,
             size: req.size,
             buff: req.buff,
@@ -163,17 +181,17 @@ impl Partition {
     fn write(&self, req: IORequest) -> Result<(), BlockDeviceError> {
         let block_dev = self.block_device.upgrade().unwrap();
 
-        assert_eq!(req.size % block_dev.lba_size(), 0, "Invalid buffer size");
+        assert_eq!(req.size % LBA_SIZE, 0, "Invalid buffer size");
         assert_ne!(req.size, 0, "Invalid buffer size");
         assert_eq!(
             req.buff.len(),
-            req.size * block_dev.lba_size(),
+            req.size * LBA_SIZE,
             "Invalid buffer and buffer size"
         );
         assert!(req.lba < self.size, "Invalid LBA");
         assert!(req.lba + req.size < self.size, "Invalid LBA");
 
-        block_dev.write(IORequest {
+        block_dev.operations.write(IORequest {
             lba: self.start + req.lba,
             size: req.size,
             buff: req.buff,
@@ -181,17 +199,18 @@ impl Partition {
     }
 }
 
-fn parse_partition_table(dev: Rc<Box<dyn BlockDevice>>) -> Vec<Partition> {
-    println!("parse partition table {}", dev.name());
+fn parse_partition_table(dev: Rc<BlockDevice>) -> Vec<Partition> {
+    println!("parse partition table {}", dev.name);
 
     let mut buff: [u8; 512] = [0; 512];
 
-    dev.read(IORequest {
-        lba: 0,
-        size: 1,
-        buff: buff.as_mut_slice(),
-    })
-    .unwrap();
+    dev.operations
+        .read(IORequest {
+            lba: 0,
+            size: 1,
+            buff: buff.as_mut_slice(),
+        })
+        .unwrap();
 
     let mut partitions: Vec<Partition> = Vec::new();
 
