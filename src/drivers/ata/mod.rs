@@ -4,11 +4,9 @@ use alloc::{boxed::Box, vec::Vec};
 use spin::Mutex;
 
 use crate::{
-    arch::x86_64::{idt::install_interrupt_handler, inb, inw, outb, outw, pic::clear_irq},
-    blk, dma,
-    mm::{PhysAddr, VirtAddr},
+    arch::x86_64::{inb, inw, outb, outw},
+    blk,
     pci::{self, PCIDevice},
-    scheduler::block_current_thread,
 };
 
 bitflags::bitflags! {
@@ -161,7 +159,7 @@ extern "C" {
 static ATA_CONTROLLERS: Mutex<Vec<ATAController>> = Mutex::new(Vec::new());
 
 impl blk::BlockDevice for ATADisk {
-    fn read(&mut self, req: blk::BlockRequest) -> Result<(), blk::BlockDeviceError> {
+    fn read(&self, req: blk::IORequest) -> Result<(), blk::BlockDeviceError> {
         let mut controllers = ATA_CONTROLLERS.lock();
         let controller = &mut controllers[self.controller_idx];
 
@@ -176,7 +174,7 @@ impl blk::BlockDevice for ATADisk {
         Ok(())
     }
 
-    fn write(&mut self, req: blk::BlockRequest) -> Result<(), blk::BlockDeviceError> {
+    fn write(&self, _req: blk::IORequest) -> Result<(), blk::BlockDeviceError> {
         Ok(())
     }
 
@@ -302,7 +300,7 @@ impl ATABus {
         }
     }
 
-    fn read(&mut self, master_disk: bool, lba: usize, count: usize, buff: *mut u8) {
+    fn read(&mut self, master_disk: bool, lba: usize, count: usize, buff: &mut [u8]) {
         assert!(count < 256);
         self.select_disk(master_disk);
         self.wait_until_not_busy();
@@ -321,17 +319,15 @@ impl ATABus {
             },
         );
 
-        let out_buff = buff as *mut u16;
+        let out_buff = &mut buff[0..count * 512];
 
         for i in 0..count {
             self.wait_until_not_busy();
             for j in 0..256 {
-                unsafe {
-                    let idx = i * 256 + j;
-                    let ptr = out_buff.offset(idx as isize);
-                    let val = self.read_io16(REG_DATA);
-                    *ptr = val;
-                }
+                let idx = i * 512 + j * 2;
+                let val = self.read_io16(REG_DATA);
+                out_buff[idx + 0] = val as u8;
+                out_buff[idx + 1] = (val >> 8) as u8;
             }
 
             // status must be read after reading the sector
@@ -397,7 +393,7 @@ impl ATAController {
         master_disk: bool,
         lba: usize,
         count: usize,
-        buff: *mut u8,
+        buff: &mut [u8],
     ) {
         let bus = if primary_bus {
             &mut self.primary_bus
@@ -408,94 +404,114 @@ impl ATAController {
     }
 }
 
-fn init_controllers(devices: Vec<&PCIDevice>) {
-    let mut controllers = ATA_CONTROLLERS.lock();
+fn init_controller(controllers: &mut Vec<ATAController>, pci_device: &PCIDevice) -> Vec<ATADisk> {
+    let mut disks = Vec::new();
 
-    for pci_device in devices.iter() {
-        // TODO: support polling
-        if pci_device.prog_if & ATAProgIf::DMA_SUPPORT.bits == 0 {
-            println!("ATA: device does not support DMA");
-            continue;
+    let primary_bus_pci_native =
+        pci_device.prog_if & ATAProgIf::PRIMARY_CHANNEL_PCI_NATIVE.bits > 0;
+    let secondary_bus_pci_native =
+        pci_device.prog_if & ATAProgIf::SECONDARY_CHANNEL_PCI_NATIVE.bits > 0;
+
+    let primary_bus_ports = if primary_bus_pci_native {
+        unsafe {
+            (
+                (pci_device.specific.type0.bar0 & 0xFFF0) as u16,
+                (pci_device.specific.type0.bar1 & 0xFFF0) as u16,
+            )
         }
+    } else {
+        (ATA_PRIMARY_BUS_PORT, ATA_PRIMARY_BUS_CONTROL_PORT)
+    };
 
-        let primary_bus_pci_native =
-            pci_device.prog_if & ATAProgIf::PRIMARY_CHANNEL_PCI_NATIVE.bits > 0;
-        let secondary_bus_pci_native =
-            pci_device.prog_if & ATAProgIf::SECONDARY_CHANNEL_PCI_NATIVE.bits > 0;
+    let secondary_bus_ports = if secondary_bus_pci_native {
+        unsafe {
+            (
+                (pci_device.specific.type0.bar2 & 0xFFF0) as u16,
+                (pci_device.specific.type0.bar3 & 0xFFF0) as u16,
+            )
+        }
+    } else {
+        (ATA_SECONDARY_BUS_PORT, ATA_SECONDARY_BUS_CONTROL_PORT)
+    };
 
-        let primary_bus_ports = if primary_bus_pci_native {
-            unsafe {
-                (
-                    (pci_device.specific.type0.bar0 & 0xFFF0) as u16,
-                    (pci_device.specific.type0.bar1 & 0xFFF0) as u16,
-                )
-            }
-        } else {
-            (ATA_PRIMARY_BUS_PORT, ATA_PRIMARY_BUS_CONTROL_PORT)
-        };
+    //let primary_dma = dma::alloc(16 * 4096, 0x10000);
+    //let secondary_dma = dma::alloc(16 * 4096, 0x10000);
 
-        let secondary_bus_ports = if secondary_bus_pci_native {
-            unsafe {
-                (
-                    (pci_device.specific.type0.bar2 & 0xFFF0) as u16,
-                    (pci_device.specific.type0.bar3 & 0xFFF0) as u16,
-                )
-            }
-        } else {
-            (ATA_SECONDARY_BUS_PORT, ATA_SECONDARY_BUS_CONTROL_PORT)
-        };
+    let mut controller = ATAController {
+        index: controllers.len(),
+        primary_bus: ATABus {
+            bus_port: primary_bus_ports.0,
+            control_port: primary_bus_ports.1,
+        },
+        secondary_bus: ATABus {
+            bus_port: secondary_bus_ports.0,
+            control_port: primary_bus_ports.1,
+        },
+    };
 
-        let primary_dma = dma::alloc(16 * 4096, 0x10000);
-        let secondary_dma = dma::alloc(16 * 4096, 0x10000);
+    for bus in 0..=1 {
+        for disk in 0..=1 {
+            let ata_bus = if bus == 0 {
+                &mut controller.primary_bus
+            } else {
+                &mut controller.secondary_bus
+            };
 
-        let mut controller = ATAController {
-            index: controllers.len(),
-            primary_bus: ATABus {
-                bus_port: primary_bus_ports.0,
-                control_port: primary_bus_ports.1,
-            },
-            secondary_bus: ATABus {
-                bus_port: secondary_bus_ports.0,
-                control_port: primary_bus_ports.1,
-            },
-        };
-
-        for bus in 0..=1 {
-            for disk in 0..=1 {
-                let ata_bus = if bus == 0 {
-                    &mut controller.primary_bus
-                } else {
-                    &mut controller.secondary_bus
+            if let Some(disk_size) = ata_bus.try_identify(disk == 0) {
+                let bus_str = match bus {
+                    0 => "primary",
+                    _ => "secondary",
                 };
 
-                if let Some(disk_size) = ata_bus.try_identify(disk == 0) {
-                    let bus_str = match bus {
-                        0 => "primary",
-                        _ => "secondary",
-                    };
+                let disk_str = match disk {
+                    0 => "master",
+                    _ => "slave",
+                };
 
-                    let disk_str = match disk {
-                        0 => "master",
-                        _ => "slave",
-                    };
+                let identified_disk = ATADisk {
+                    controller_idx: controller.index,
+                    primary_bus: bus == 0,
+                    master_disk: disk == 0,
+                    size: disk_size,
+                };
 
-                    let identified_disk = ATADisk {
-                        controller_idx: controller.index,
-                        primary_bus: bus == 0,
-                        master_disk: disk == 0,
-                        size: disk_size,
-                    };
-
+                if cfg!(ata_debug) {
                     println!(
                         "ATA: found device on the {} bus/{} disk with LBA count: {}",
                         bus_str, disk_str, identified_disk.size
                     );
-                    blk::register(Box::new(identified_disk));
                 }
+                disks.push(identified_disk);
             }
         }
+    }
 
-        controllers.push(controller);
+    controllers.push(controller);
+
+    disks
+}
+
+fn init_controllers(devices: Vec<&PCIDevice>) {
+    let mut disks: Vec<ATADisk> = Vec::new();
+    {
+        let mut controllers = ATA_CONTROLLERS.lock();
+
+        for pci_device in devices.iter() {
+            // TODO: support polling
+            if pci_device.prog_if & ATAProgIf::DMA_SUPPORT.bits == 0 {
+                if cfg!(ata_debug) {
+                    println!("ATA: device does not support DMA");
+                }
+                continue;
+            }
+
+            let mut controller_disks = init_controller(&mut controllers, pci_device);
+            disks.append(&mut controller_disks);
+        }
+    }
+
+    for disk in disks {
+        blk::register_blk(Box::new(disk));
     }
 }
 

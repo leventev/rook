@@ -461,9 +461,7 @@ pub fn match_devices(class: PCIClass, func: fn(Vec<&PCIDevice>)) {
 }
 
 pub fn init() {
-    println!("lock {}", PCI_DEVICES.is_locked());
     let mut devices = PCI_DEVICES.lock();
-    println!("after lock");
     devices.clear();
 
     let bus0_base_addr = construct_addr(0, 0, 0);
@@ -478,10 +476,6 @@ pub fn init() {
             if vendor_id == 0xFFF { break; }
             read_bus(&mut devices, func);
         }
-    }
-
-    for device in devices.iter() {
-        println!("{}", device);
     }
 }
 

@@ -87,7 +87,7 @@ pub extern "C" fn _start() -> ! {
 }
 
 fn main_init_thread() {
-    blk::parse_partition_tables();
+    println!("hi");
 }
 
 #[panic_handler]

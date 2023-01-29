@@ -37,9 +37,9 @@ pub fn init() {
     for module in modules.iter() {
         let success = (module.init)();
         if success {
-            println!("loaded {} module", module.name);
+            println!("DRIVER MANAGER: loaded {} module", module.name);
         } else {
-            println!("failed to load {} module", module.name);
+            println!("DRIVER MANAGER: failed to load {} module", module.name);
         }
     }
 }

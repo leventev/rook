@@ -1,6 +1,6 @@
 use crate::{
     arch::x86_64::{self, paging::PageFlags},
-    mm::{phys, virt, VirtAddr, PhysAddr},
+    mm::{phys, virt, PhysAddr, VirtAddr},
 };
 use core::arch::asm;
 
@@ -177,7 +177,7 @@ impl Scheduler {
 
     /// saves the registers of the currently running thread
     fn save_regs(&mut self, regs: RegisterState) {
-       // println!("{:?}", regs);
+        // println!("{:?}", regs);
         let tid = *self.current_queue.front().unwrap();
         // TODO: simply iterating over it may be faster
         let thread = self.get_running_thread(tid).unwrap();
@@ -268,7 +268,7 @@ impl Scheduler {
         if self.running_threads.len() == 1 {
             self.current_queue.push_back(0);
         }
-    
+
         // otherwise add all running threads except the sentinel thread
         for thread in self.running_threads.iter().skip(1) {
             self.current_queue.push_back(thread.id);
@@ -345,7 +345,8 @@ pub fn init() {
         let phys_start = phys::alloc_multiple(ALLOC_AT_ONCE);
         for j in 0..ALLOC_AT_ONCE {
             let phys = phys_start + PhysAddr::new(j as u64 * 4096);
-            let virt = KERNEL_THREAD_STACKS_START + VirtAddr::new((i * ALLOC_AT_ONCE + j) as u64 * 4096);
+            let virt =
+                KERNEL_THREAD_STACKS_START + VirtAddr::new((i * ALLOC_AT_ONCE + j) as u64 * 4096);
             virt::map(virt, phys, PageFlags::READ_WRITE);
         }
     }
@@ -355,7 +356,9 @@ pub fn init() {
         println!("sentinel thread");
         loop {
             x86_64::enable_interrupts();
-            unsafe { asm!("hlt"); }
+            unsafe {
+                asm!("hlt");
+            }
             // halt
         }
     });
@@ -409,7 +412,9 @@ extern "C" fn __block_current_thread() {
 
 pub fn block_current_thread() {
     x86_64::disable_interrupts();
-    unsafe { x86_64::block_task(); }
+    unsafe {
+        x86_64::block_task();
+    }
 }
 
 #[no_mangle]

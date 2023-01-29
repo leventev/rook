@@ -92,23 +92,24 @@ unsafe impl GlobalAlloc for KernelAllocator {
             }
 
             let mut chunk_size = *header & !(1 << 63);
-            assert!(
-                chunk_size as usize % mem::size_of::<u64>() == 0,
+            assert_eq!(
+                chunk_size as usize % mem::size_of::<u64>(),
+                0,
                 "Invalid header size"
             );
-            
+
             let present = (*header & (1 << 63)) != 0;
             let aligned_header =
-            KernelAllocator::align(header as usize, layout.align()) as *mut u64;
-            
+                KernelAllocator::align(header as usize, layout.align()) as *mut u64;
+
             let advance = aligned_header as usize - header as usize;
-            
+
             let prev_header_size = if advance > 0 {
                 advance - mem::size_of::<u64>()
             } else {
                 0
             };
-            
+
             let chunk_size_old = chunk_size;
             chunk_size -= prev_header_size as u64;
 
@@ -160,6 +161,12 @@ unsafe impl GlobalAlloc for KernelAllocator {
                         chunk_start, final_size
                     );
                 }
+
+                // FIXME: i'm not sure whether the next header is always unallocated
+                // maybe check if the next header is allocated and only set it to 0
+                // if it's unallocated
+                let next_header = chunk_start.offset(final_size as isize) as *mut u64;
+                *next_header = 0;
 
                 data.allocated_nodes += 1;
                 return chunk_start;
