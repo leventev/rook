@@ -112,7 +112,8 @@ pub fn init() {
     ];
 
     // cant make this as a constant unfortunately
-    let kernel_code_type: IDTTypeAttr = IDTTypeAttr::TRAP_GATE | IDTTypeAttr::PRESENT | IDTTypeAttr::RING0;
+    let kernel_code_type: IDTTypeAttr =
+        IDTTypeAttr::TRAP_GATE | IDTTypeAttr::PRESENT | IDTTypeAttr::RING0;
 
     unsafe {
         for (i, addr) in exception_handlers.iter().enumerate() {
@@ -130,8 +131,9 @@ pub fn init() {
 
 pub fn install_interrupt_handler(idx: usize, handler: u64) {
     assert!(idx < 256);
-    
-    let kernel_code_type: IDTTypeAttr = IDTTypeAttr::TRAP_GATE | IDTTypeAttr::PRESENT | IDTTypeAttr::RING0;
+
+    let kernel_code_type: IDTTypeAttr =
+        IDTTypeAttr::TRAP_GATE | IDTTypeAttr::PRESENT | IDTTypeAttr::RING0;
     unsafe {
         IDT[idx] = IDTEntry::new(handler, KERNEL_CODE_SEGMENT, 0, kernel_code_type);
     }

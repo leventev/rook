@@ -1,6 +1,9 @@
 use spin::Mutex;
 
-use crate::{mm::{VirtAddr, PhysAddr, phys, virt}, arch::x86_64::paging::PageFlags};
+use crate::{
+    arch::x86_64::paging::PageFlags,
+    mm::{phys, virt, PhysAddr, VirtAddr},
+};
 
 /// pml4[507]
 const DMA_START: VirtAddr = VirtAddr::new(0xfffffd8000000000);

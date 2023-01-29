@@ -13,19 +13,19 @@ extern crate alloc;
 #[macro_use]
 mod io;
 mod arch;
+mod blk;
+mod dma;
 mod drivers;
 mod mm;
-mod time;
-mod scheduler;
-mod blk;
 mod pci;
-mod dma;
+mod scheduler;
+mod time;
 
 use limine::{
     LimineBootInfoRequest, LimineBootTimeRequest, LimineHhdmRequest, LimineMemmapRequest,
 };
 
-use crate::{arch::x86_64::{idt, pic, stacktrace}};
+use crate::arch::x86_64::{idt, pic, stacktrace};
 
 static BOOTLOADER_INFO: LimineBootInfoRequest = LimineBootInfoRequest::new(0);
 static MMAP_INFO: LimineMemmapRequest = LimineMemmapRequest::new(0);

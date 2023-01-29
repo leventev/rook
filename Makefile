@@ -1,6 +1,6 @@
 CARGOFLAGS=--target x86_64-rook.json
 RUSTFLAGS=-Cforce-frame-pointers=yes
-QEMUFLAGS=-m 128M -d int -monitor stdio -vga std -no-reboot -no-shutdown\
+QEMUFLAGS=-m 128M -serial stdio -vga std -no-reboot -no-shutdown\
 -drive file=$(IMAGE),if=ide,media=disk,format=raw\
 
 BUILDDIR=bin

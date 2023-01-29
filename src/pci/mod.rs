@@ -473,7 +473,9 @@ pub fn init() {
         for func in 0..8 {
             let base_addr = construct_addr(0, 0, func);
             let vendor_id = read32(base_addr, VENDOR_ID_OFF);
-            if vendor_id == 0xFFF { break; }
+            if vendor_id == 0xFFF {
+                break;
+            }
             read_bus(&mut devices, func);
         }
     }

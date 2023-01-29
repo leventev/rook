@@ -11,7 +11,9 @@ pub fn walk() {
     println!("stack trace:");
 
     for _ in 0..MAX_FRAMES {
-        if rbp == 0 { return; }
+        if rbp == 0 {
+            return;
+        }
         let func = unsafe { *(rbp as *const usize).offset(1) };
         println!("  {:#x}", func);
         rbp = unsafe { *(rbp as *const usize) };

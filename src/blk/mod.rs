@@ -86,7 +86,12 @@ pub struct BlockDevice {
 
 impl BlockDevice {}
 
-pub fn register_blk(name: &'static str, major: usize, size: usize, operations: Box<dyn BlockOperations>) {
+pub fn register_blk(
+    name: &'static str,
+    major: usize,
+    size: usize,
+    operations: Box<dyn BlockOperations>,
+) {
     let mut blk_dev_manager = BLOCK_DEVICE_MANAGER.lock();
     println!("BLK: added block device {}", name);
 

@@ -499,12 +499,7 @@ fn init_controllers(devices: Vec<&PCIDevice>) {
     }
 
     for disk in disks {
-        blk::register_blk(
-            "ATA",
-            1,
-            disk.size,
-            Box::new(disk),
-        );
+        blk::register_blk("ATA", 1, disk.size, Box::new(disk));
     }
 }
 

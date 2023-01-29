@@ -2,7 +2,7 @@ use core::fmt;
 use limine::LimineTerminalRequest;
 use spin::Mutex;
 
-use crate::arch::x86_64;
+use crate::{arch::x86_64, drivers};
 
 static TERMINAL_REQUEST: LimineTerminalRequest = LimineTerminalRequest::new(0);
 
@@ -14,21 +14,27 @@ unsafe impl Send for Writer {}
 
 impl fmt::Write for Writer {
     fn write_str(&mut self, s: &str) -> fmt::Result {
-        // Get the Terminal response and cache it.
-        let response = match self.terminals {
-            None => {
-                let response = TERMINAL_REQUEST.get_response().get().ok_or(fmt::Error)?;
-                self.terminals = Some(response);
-                response
+        if cfg!(serial_module) && drivers::is_loaded("serial") {
+            for c in s.bytes() {
+                drivers::serial::write(c);
             }
-            Some(resp) => resp,
-        };
+        } else {
+            // Get the Terminal response and cache it.
+            let response = match self.terminals {
+                None => {
+                    let response = TERMINAL_REQUEST.get_response().get().ok_or(fmt::Error)?;
+                    self.terminals = Some(response);
+                    response
+                }
+                Some(resp) => resp,
+            };
 
-        let write = response.write().ok_or(fmt::Error)?;
+            let write = response.write().ok_or(fmt::Error)?;
 
-        // Output the string onto each terminal.
-        for terminal in response.terminals() {
-            write(terminal, s);
+            // Output the string onto each terminal.
+            for terminal in response.terminals() {
+                write(terminal, s);
+            }
         }
 
         Ok(())

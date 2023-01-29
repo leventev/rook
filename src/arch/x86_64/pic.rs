@@ -1,4 +1,4 @@
-use super::{inb, outb, idt};
+use super::{idt, inb, outb};
 
 const PIC1_COMMAND: u16 = 0x20;
 const PIC1_DATA: u16 = 0x21;
@@ -93,11 +93,7 @@ pub fn clear_irq(irq: u8) {
 }
 
 pub fn send_irq_eoi(irq: u8) {
-    let port = if irq >= 8 {
-        PIC2_COMMAND
-    } else {
-        PIC1_COMMAND
-    };
+    let port = if irq >= 8 { PIC2_COMMAND } else { PIC1_COMMAND };
     outb(port, PIC_EOI);
 }
 
