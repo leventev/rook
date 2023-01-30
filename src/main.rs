@@ -16,11 +16,13 @@ mod arch;
 mod blk;
 mod dma;
 mod drivers;
+mod fs;
 mod mm;
 mod pci;
 mod scheduler;
 mod time;
 
+use alloc::string::String;
 use limine::{
     LimineBootInfoRequest, LimineBootTimeRequest, LimineHhdmRequest, LimineMemmapRequest,
 };
@@ -80,6 +82,11 @@ pub extern "C" fn _start() -> ! {
 
     pci::init();
     drivers::init();
+
+    fs::init();
+
+    let part = blk::get_partition(1, 0, 0).unwrap();
+    fs::mount(String::from("/"), part, "FAT").unwrap();
 
     scheduler::init();
     scheduler::spawn_kernel_thread(main_init_thread);

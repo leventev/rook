@@ -11,7 +11,7 @@ const LBA_SIZE: usize = 512;
 
 struct BlockDeviceManager {
     block_devices: Vec<Rc<BlockDevice>>,
-    partitions: Vec<Partition>,
+    partitions: Vec<Rc<Partition>>,
 }
 
 unsafe impl Send for BlockDeviceManager {}
@@ -77,11 +77,11 @@ pub trait BlockOperations: Send + Debug {
 
 #[derive(Debug)]
 pub struct BlockDevice {
-    operations: Box<dyn BlockOperations>,
-    major: usize,
-    minor: usize,
-    name: &'static str,
-    size: usize,
+    pub operations: Box<dyn BlockOperations>,
+    pub major: usize,
+    pub minor: usize,
+    pub name: &'static str,
+    pub size: usize,
 }
 
 impl BlockDevice {}
@@ -110,13 +110,30 @@ pub fn register_blk(
     };
 
     let rc = Rc::new(dev);
-    let mut parts = parse_partition_table(rc.clone());
+    let mut parts = parse_partition_table(rc.clone())
+        .into_iter()
+        .map(|x| Rc::new(x))
+        .collect::<Vec<Rc<Partition>>>();
+
     for part in parts.iter() {
         println!("{:?}", part);
     }
 
     blk_dev_manager.block_devices.push(rc);
     blk_dev_manager.partitions.append(&mut parts);
+}
+
+pub fn get_partition(major: usize, minor: usize, part_idx: usize) -> Option<Weak<Partition>> {
+    let blk_dev_manager = BLOCK_DEVICE_MANAGER.lock();
+    let part = blk_dev_manager.partitions.iter().find(|part| {
+        let dev = part.block_device.upgrade().unwrap();
+        dev.major == major && dev.minor == minor && part.part_idx == part_idx
+    });
+
+    match part {
+        None => None,
+        Some(p) => Some(Rc::downgrade(p)),
+    }
 }
 
 /// Sends a read request to the target block device
@@ -151,15 +168,18 @@ pub fn blk_write(block_device: &BlockDevice, req: IORequest) -> Result<(), Block
 
 #[derive(Debug)]
 /// Represents a partition
-struct Partition {
+pub struct Partition {
     /// Block device where the partition resides
-    block_device: Weak<BlockDevice>,
+    pub block_device: Weak<BlockDevice>,
+
+    /// Partition index in the block device
+    pub part_idx: usize,
 
     /// LBA index of the start of the partition in the associated block device
-    start: usize,
+    pub start: usize,
 
     /// Size of the partition in LBAs
-    size: usize,
+    pub size: usize,
 }
 
 impl Partition {
@@ -233,6 +253,7 @@ fn parse_partition_table(dev: Rc<BlockDevice>) -> Vec<Partition> {
             let size = (*entry).lba_count;
             partitions.push(Partition {
                 block_device: Rc::downgrade(&dev),
+                part_idx: partitions.len(),
                 start: start as usize,
                 size: size as usize,
             })

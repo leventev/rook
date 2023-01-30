@@ -11,6 +11,9 @@ mod pit;
 #[cfg(serial_module)]
 pub mod serial;
 
+#[cfg(fat_module)]
+pub mod fat;
+
 // FIXME: dont include assembly files associated with disabled modules in the build
 
 /// Kernel module
@@ -41,12 +44,17 @@ pub fn init() {
     #[cfg(serial_module)]
     modules.push(KernelModule::new(serial::init, "serial"));
 
+    #[cfg(fat_module)]
+    modules.push(KernelModule::new(fat::init, "fat"));
+
     for module in modules.iter() {
         let success = (module.init)();
-        if success {
-            println!("DRIVER MANAGER: loaded {} module", module.name);
-        } else {
-            println!("DRIVER MANAGER: failed to load {} module", module.name);
+        if cfg!(driver_manager_debug) {
+            if success {
+                println!("DRIVER MANAGER: loaded {} module", module.name);
+            } else {
+                println!("DRIVER MANAGER: failed to load {} module", module.name);
+            }
         }
     }
 }
