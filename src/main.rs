@@ -7,6 +7,8 @@
 #![feature(generic_arg_infer)]
 #![feature(linked_list_cursors)]
 #![feature(new_uninit)]
+#![feature(const_ptr_as_ref)]
+#![feature(const_option)]
 
 extern crate alloc;
 
@@ -21,6 +23,7 @@ mod mm;
 mod pci;
 mod scheduler;
 mod time;
+mod utils;
 
 use alloc::string::String;
 use limine::{

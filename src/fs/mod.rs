@@ -1,13 +1,9 @@
-use alloc::{
-    boxed::Box,
-    format,
-    rc::Weak,
-    string::String,
-    vec::Vec,
-};
+use alloc::{boxed::Box, format, rc::Weak, string::String, vec::Vec};
 use spin::RwLock;
 
 use crate::blk::Partition;
+
+type Path = Vec<String>;
 
 #[derive(Debug)]
 pub enum FileSystemError {
@@ -15,11 +11,12 @@ pub enum FileSystemError {
     AlreadyMounted,
     FsSkeletonNotFound,
     FsSkeletonAlreadyExists,
+    InvalidPath,
 }
 
 pub trait FileSystemInner {
     // Opens a file, returns the inode
-    fn open(&self, path: Vec<String>) -> Result<usize, FileSystemError>;
+    fn open(&self, path: Path) -> Result<usize, FileSystemError>;
 
     // Opens a file, returns the inode
     fn close(&self, inode: usize) -> Result<(), FileSystemError>;
@@ -55,7 +52,7 @@ pub struct FileSystem {
 }
 
 struct MountPoint {
-    path: String,
+    path: Path,
     fs: FileSystem,
 }
 
@@ -81,6 +78,7 @@ impl VirtualFileSystem {
         skel_name: &str,
         part: Weak<Partition>,
     ) -> Result<FileSystem, FileSystemError> {
+        println!("{:?}", self.fs_skeletons);
         match self.fs_skeletons.iter().find(|fs| fs.name == skel_name) {
             Some(fs) => Ok(FileSystem {
                 name: fs.name,
@@ -102,11 +100,16 @@ impl VirtualFileSystem {
         }
 
         if cfg!(vfs_debug) {
-            println!("VFS: registered {} file system skeleton", skel.name);
+            println!("VFS: registered {} {:?} file system skeleton", skel.name, skel.new);
         }
 
         self.fs_skeletons.push(skel);
+        println!("{:?} {:?}", self.fs_skeletons, self.fs_skeletons.as_ptr());
         Ok(())
+    }
+
+    fn find_mount(&self, path: &Path) -> Option<&MountPoint> {
+        self.mounts.iter().find(|mount| mount.path == *path)
     }
 
     fn mount(
@@ -115,9 +118,6 @@ impl VirtualFileSystem {
         part: Weak<Partition>,
         fs_name: &str,
     ) -> Result<(), FileSystemError> {
-        // TODO: check if its already mounted
-        // TODO: validate path
-        
         if cfg!(vfs_debug) {
             let blk_dev_name = {
                 let part = part.upgrade().unwrap();
@@ -128,15 +128,24 @@ impl VirtualFileSystem {
                 )
             };
             println!(
-                "VFS: trying to mount {}({}) filesystem to {} ",
+                "VFS: attempting to mount {}({}) filesystem to {} ",
                 fs_name, blk_dev_name, path
             );
         }
-        
+
+        let parsed_path = match parse_path(path) {
+            Some(s) => s,
+            None => return Err(FileSystemError::InvalidPath),
+        };
+
+        if self.find_mount(&parsed_path).is_some() {
+            return Err(FileSystemError::AlreadyMounted);
+        }
+
         let filesystem = self.create_new_filesystem(fs_name, part)?;
 
         self.mounts.push(MountPoint {
-            path,
+            path: parsed_path,
             fs: filesystem,
         });
 
@@ -152,14 +161,11 @@ fn parse_path(path: String) -> Option<Vec<String>> {
         return None;
     }
 
-    let mut parts = path.split("/");
-    if parts.find(|s| s.len() == 0).is_some() {
-        return None;
-    }
-
     let parts: Vec<String> = [
         [String::from("/")].to_vec(),
-        parts.map(|s| String::from(s)).collect::<Vec<String>>(),
+        path.split("/")
+            .map(|s| String::from(s))
+            .collect::<Vec<String>>(),
     ]
     .concat();
     Some(parts)

@@ -4,215 +4,139 @@ use core::{
 };
 use spin::Mutex;
 
-use crate::arch::x86_64::paging::PageFlags;
+use crate::{arch::x86_64::paging::PageFlags, utils};
 
 use super::{phys, virt, VirtAddr};
 
 /// pml4[509]
 const KERNEL_HEAP_START: VirtAddr = VirtAddr::new(0xfffffe8000000000);
 const KERNEL_HEAP_BASE_SIZE: usize = 128 * 1024; // 128 KiB
+const MINIMUM_REGION_SIZE: usize = 8;
+
+#[derive(Clone, Copy)]
+struct Node {
+    size: usize,
+    allocated: bool,
+}
 
 struct KernelAllocator;
 
-struct KernelAllocatorData {
+struct KernelAllocatorInner {
     current_size: usize,
     allocated_nodes: usize,
     initialized: bool,
 }
 
+impl Node {
+    fn next(&self) -> Option<&mut Node> {
+        assert_ne!(self.size, 0);
+        // FIXME: handle out of memory
+        let ptr =
+            (self as *const _ as usize + core::mem::size_of::<Node>() + self.size) as *mut Node;
+        Some(unsafe { ptr.as_mut().unwrap() })
+    }
+}
+
+unsafe impl Send for Node {}
+unsafe impl Send for KernelAllocatorInner {}
+
 #[global_allocator]
 static KERNEL_ALLOCATOR: KernelAllocator = KernelAllocator;
-static KERNEL_ALLOCATOR_DATA: Mutex<KernelAllocatorData> = Mutex::new(KernelAllocatorData {
+static KERNEL_ALLOCATOR_INNER: Mutex<KernelAllocatorInner> = Mutex::new(KernelAllocatorInner {
     current_size: 0,
     allocated_nodes: 0,
-    initialized: false,
+    initialized: false, // FIXME: this ^^
 });
 
-impl KernelAllocator {
-    fn align(n: usize, align_by: usize) -> usize {
-        if n % align_by == 0 {
-            n
-        } else {
-            n + (align_by - n % align_by)
-        }
+impl KernelAllocatorInner {
+    fn head() -> &'static mut Node {
+        unsafe { (KERNEL_HEAP_START.get() as *mut Node).as_mut().unwrap() }
     }
-}
 
-unsafe impl GlobalAlloc for KernelAllocator {
-    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        let mut data = KERNEL_ALLOCATOR_DATA.lock();
-        assert!(data.initialized);
+    ///
+    fn get_free_region(&mut self, size: usize, align: usize) -> Option<usize> {
+        const MIN_SIZE: usize = core::mem::size_of::<Node>() + MINIMUM_REGION_SIZE;
 
-        let mem_end = (KERNEL_HEAP_START.get() + data.current_size as u64) as *mut u64;
-        let size = KernelAllocator::align(layout.size(), mem::size_of::<u64>());
+        let mut current = KernelAllocatorInner::head();
+        let mut has_next = true;
 
-        if cfg!(kalloc_debug) {
-            println!(
-                "KALLOC: trying to allocate {} bytes, aligned to {}",
-                size,
-                layout.align()
-            );
-        }
-
-        // TODO: cache the starting position
-        let mut header: *mut u64 = KERNEL_HEAP_START.get() as *mut u64;
-        while header < mem_end {
-            if *header == 0 {
-                header = KernelAllocator::align(header as usize, layout.align()) as *mut u64;
-
-                let size_left = mem_end as usize - header as usize - mem::size_of::<u64>();
-                if size_left < size {
-                    break;
-                }
-
-                *header = (1 << 63) | (size as u64);
-
-                let next_header = header.offset(size as isize / mem::size_of::<u64>() as isize + 1);
-                *next_header = 0;
-
-                if cfg!(kalloc_debug) {
-                    println!(
-                        "KALLOC: found empty header at {:#?} next_header: {:#?}",
-                        header, next_header
-                    );
-                }
-
-                let chunk_start = header.offset(1) as *mut u8;
-
-                if cfg!(kalloc_debug) {
-                    println!(
-                        "KALLOC: allocated chunk {:#?} with size {}",
-                        chunk_start, size
-                    );
-                }
-
-                data.allocated_nodes += 1;
-
-                return chunk_start;
+        while has_next {
+            assert_ne!(current.size, 0);
+            if current.allocated || current.size < size {
+                let next = current.next();
+                has_next = next.is_some();
+                current = next.unwrap();
+                continue;
             }
 
-            let mut chunk_size = *header & !(1 << 63);
-            assert_eq!(
-                chunk_size as usize % mem::size_of::<u64>(),
-                0,
-                "Invalid header size"
-            );
+            let header_addr = current as *const _ as usize;
 
-            let present = (*header & (1 << 63)) != 0;
-            let aligned_header =
-                KernelAllocator::align(header as usize, layout.align()) as *mut u64;
+            let region_start = header_addr + core::mem::size_of::<Node>();
+            let region_end = header_addr + current.size;
 
-            let advance = aligned_header as usize - header as usize;
+            let real_region_start = utils::align(region_start, align);
 
-            let prev_header_size = if advance > 0 {
-                advance - mem::size_of::<u64>()
-            } else {
-                0
-            };
+            let right_side = current.size > (size + MIN_SIZE);
+            let split_prev = real_region_start != region_start;
 
-            let chunk_size_old = chunk_size;
-            chunk_size -= prev_header_size as u64;
+            return if split_prev || right_side {
+                let aligned_size = region_end - real_region_start;
 
-            // the chunk is suitable and isnt present
-            if chunk_size >= size as u64 && !present {
-                // i couldnt test the alignment code, lets hope it works
-                // alignment happened
-                if advance > 0 {
-                    //assert!(false);
-                    // truncate the base header
-                    assert!(prev_header_size >= mem::size_of::<u64>());
-                    *header = prev_header_size as u64;
-                    header = aligned_header;
+                // add header to the size
+                let total_size = core::mem::size_of::<Node>() + usize::min(aligned_size, size);
+                let remaining_size = current.size - total_size;
+
+                // check if the new region is suitable and the old region is big enough
+                if aligned_size < size || remaining_size < MIN_SIZE {
+                    let next = current.next();
+                    has_next = next.is_some();
+                    current = next.unwrap();
+                    continue;
                 }
 
-                let rem_size = chunk_size - size as u64;
+                if right_side {
+                    // the new header is after the current header
+                    let header_addr = real_region_start + size;
+                    let mut new_node = unsafe { (header_addr as *mut Node).as_mut().unwrap() };
+                    new_node.allocated = false;
+                    new_node.size = remaining_size;
 
-                let final_size: u64;
-                // we can split the chunk into two chunks
-                if rem_size as usize >= 2 * mem::size_of::<u64>() {
-                    let new_header = header.offset(size as isize / 4 + 1);
-                    *new_header = rem_size - 4;
-                    *header = (1 << 63) | size as u64;
-                    final_size = size as u64;
-
-                    if cfg!(kalloc_debug) {
-                        println!(
-                            "KALLOC: chunk({}) split into two {:#?}({}), {:#?}({})",
-                            chunk_size, header, size, new_header, rem_size
-                        );
-                    }
+                    current.allocated = true;
+                    current.size = size;
                 } else {
-                    *header = (1 << 63) | chunk_size;
-                    final_size = chunk_size;
+                    // the new header is before the current header
+                    current.size = remaining_size;
 
-                    if cfg!(kalloc_debug) {
-                        println!(
-                            "KALLOC: merged unsplittable chunk({}) into new chunk at {:#?}",
-                            chunk_size,
-                            header.offset(1)
-                        );
-                    }
+                    let header_addr = real_region_start - core::mem::size_of::<Node>();
+                    let mut new_node = unsafe { (header_addr as *mut Node).as_mut().unwrap() };
+                    new_node.allocated = true;
+                    new_node.size = size;
                 }
 
-                let chunk_start = header.offset(1) as *mut u8;
-                if cfg!(kalloc_debug) {
-                    println!(
-                        "KALLOC: allocated chunk {:#?} with size {}",
-                        chunk_start, final_size
-                    );
+                return Some(real_region_start);
+            } else {
+                if current.size < size {
+                    let next = current.next();
+                    has_next = next.is_some();
+                    current = next.unwrap();
+                    continue;
                 }
 
-                // FIXME: i'm not sure whether the next header is always unallocated
-                // maybe check if the next header is allocated and only set it to 0
-                // if it's unallocated
-                let next_header = chunk_start.offset(final_size as isize) as *mut u64;
-                *next_header = 0;
-
-                data.allocated_nodes += 1;
-                return chunk_start;
-            }
-
-            // if the chunk wasnt suitable jump to the next header
-            let jump = (chunk_size / mem::size_of::<u64>() as u64) + 1;
-            let next_header = header.offset(jump as isize);
-            if cfg!(kalloc_debug) {
-                println!(
-                    "KALLOC: jump {:#?} -> {:#?} {} bytes present: {} chunk_size: {}",
-                    header,
-                    next_header,
-                    jump * mem::size_of::<u64>() as u64,
-                    present,
-                    chunk_size_old
-                );
-            }
-
-            header = next_header;
-
-            continue;
+                current.allocated = true;
+                self.allocated_nodes += 1;
+                Some(region_start)
+            };
         }
 
-        panic!("OUT OF MEMORY");
+        None
     }
 
-    unsafe fn dealloc(&self, ptr: *mut u8, _layout: core::alloc::Layout) {
-        let mut data = KERNEL_ALLOCATOR_DATA.lock();
-        assert!(data.initialized);
-
-        data.allocated_nodes -= 1;
-
-        let header: *mut u64 = (ptr as *mut u64).offset(-1);
-        *header &= !(1 << 63);
-        if cfg!(kalloc_debug) {
-            println!(
-                "KALLOC: deallocated chunk {:#?} with size {}",
-                header.offset(1),
-                *header
-            );
-        }
+    fn free_region(&mut self, addr: usize) {
+        let header_addr = addr - core::mem::size_of::<Node>();
+        let region = unsafe { (header_addr as *mut Node).as_mut().unwrap() };
+        region.allocated = false;
     }
-}
 
-impl KernelAllocatorData {
     pub fn init(&mut self) {
         assert!(!self.initialized);
         self.initialized = true;
@@ -224,10 +148,34 @@ impl KernelAllocatorData {
             let phys = phys::alloc();
             virt::map(virt, phys, PageFlags::READ_WRITE);
         }
+
+        let head = KernelAllocatorInner::head();
+        head.allocated = false;
+        head.size = self.current_size;
+    }
+}
+
+unsafe impl GlobalAlloc for KernelAllocator {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        let mut inner = KERNEL_ALLOCATOR_INNER.lock();
+        assert!(inner.initialized);
+
+        let region = inner
+            .get_free_region(layout.size(), layout.align())
+            .expect("OUT OF MEMORY");
+
+        region as *mut u8
+    }
+
+    unsafe fn dealloc(&self, ptr: *mut u8, _layout: core::alloc::Layout) {
+        let mut inner = KERNEL_ALLOCATOR_INNER.lock();
+        assert!(inner.initialized);
+
+        inner.free_region(ptr as usize);
     }
 }
 
 pub fn init() {
-    let mut data = KERNEL_ALLOCATOR_DATA.lock();
+    let mut data = KERNEL_ALLOCATOR_INNER.lock();
     data.init();
 }
