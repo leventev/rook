@@ -100,7 +100,10 @@ impl VirtualFileSystem {
         }
 
         if cfg!(vfs_debug) {
-            println!("VFS: registered {} {:?} file system skeleton", skel.name, skel.new);
+            println!(
+                "VFS: registered {} {:?} file system skeleton",
+                skel.name, skel.new
+            );
         }
 
         self.fs_skeletons.push(skel);
