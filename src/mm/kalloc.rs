@@ -57,6 +57,9 @@ impl KernelAllocatorInner {
     fn get_free_region(&mut self, size: usize, align: usize) -> Option<usize> {
         const MIN_SIZE: usize = core::mem::size_of::<Node>() + MINIMUM_REGION_SIZE;
 
+        // ensure that headers are aligned to pointer size boundaries(4 on 32bit, 8 on 64bit...)
+        let size = utils::align(size, core::mem::size_of::<usize>());
+
         let mut current = KernelAllocatorInner::head();
         let mut has_next = true;
 
@@ -74,13 +77,13 @@ impl KernelAllocatorInner {
             let region_start = header_addr + core::mem::size_of::<Node>();
             let region_end = header_addr + current.size;
 
-            let real_region_start = utils::align(region_start, align);
+            let actual_region_start = utils::align(region_start, align);
 
             let right_side = current.size > (size + MIN_SIZE);
-            let split_prev = real_region_start != region_start;
+            let split_prev = actual_region_start != region_start;
 
             return if split_prev || right_side {
-                let aligned_size = region_end - real_region_start;
+                let aligned_size = region_end - actual_region_start;
 
                 // add header to the size
                 let total_size = core::mem::size_of::<Node>() + usize::min(aligned_size, size);
@@ -96,7 +99,7 @@ impl KernelAllocatorInner {
 
                 if right_side {
                     // the new header is after the current header
-                    let header_addr = real_region_start + size;
+                    let header_addr = actual_region_start + size;
                     let mut new_node = unsafe { (header_addr as *mut Node).as_mut().unwrap() };
                     new_node.allocated = false;
                     new_node.size = remaining_size;
@@ -107,13 +110,13 @@ impl KernelAllocatorInner {
                     // the new header is before the current header
                     current.size = remaining_size;
 
-                    let header_addr = real_region_start - core::mem::size_of::<Node>();
+                    let header_addr = actual_region_start - core::mem::size_of::<Node>();
                     let mut new_node = unsafe { (header_addr as *mut Node).as_mut().unwrap() };
                     new_node.allocated = true;
                     new_node.size = size;
                 }
 
-                return Some(real_region_start);
+                Some(actual_region_start)
             } else {
                 if current.size < size {
                     let next = current.next();
@@ -134,6 +137,7 @@ impl KernelAllocatorInner {
     fn free_region(&mut self, addr: usize) {
         let header_addr = addr - core::mem::size_of::<Node>();
         let region = unsafe { (header_addr as *mut Node).as_mut().unwrap() };
+        assert!(region.allocated);
         region.allocated = false;
     }
 
