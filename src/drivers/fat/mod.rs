@@ -2,7 +2,7 @@ use alloc::{boxed::Box, rc::Weak};
 
 use crate::{
     blk::Partition,
-    fs::{self, FileSystemInner, FileSystemSkeleton},
+    fs::{self, FileSystemInner, FileSystemSkeleton, path::Path},
 };
 
 struct FATFileSystem {
@@ -12,7 +12,7 @@ struct FATFileSystem {
 impl FileSystemInner for FATFileSystem {
     fn open(
         &self,
-        _path: alloc::vec::Vec<alloc::string::String>,
+        _path: &Path,
     ) -> Result<usize, fs::FileSystemError> {
         todo!()
     }

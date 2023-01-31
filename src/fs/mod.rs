@@ -3,7 +3,9 @@ use spin::RwLock;
 
 use crate::blk::Partition;
 
-type Path = Vec<String>;
+use self::path::{Path, PathOwned};
+
+pub mod path;
 
 #[derive(Debug)]
 pub enum FileSystemError {
@@ -16,7 +18,7 @@ pub enum FileSystemError {
 
 pub trait FileSystemInner {
     // Opens a file, returns the inode
-    fn open(&self, path: Path) -> Result<usize, FileSystemError>;
+    fn open(&self, path: &Path) -> Result<usize, FileSystemError>;
 
     // Opens a file, returns the inode
     fn close(&self, inode: usize) -> Result<(), FileSystemError>;
@@ -52,7 +54,7 @@ pub struct FileSystem {
 }
 
 struct MountPoint {
-    path: Path,
+    path: PathOwned,
     fs: FileSystem,
 }
 
@@ -78,7 +80,6 @@ impl VirtualFileSystem {
         skel_name: &str,
         part: Weak<Partition>,
     ) -> Result<FileSystem, FileSystemError> {
-        println!("{:?}", self.fs_skeletons);
         match self.fs_skeletons.iter().find(|fs| fs.name == skel_name) {
             Some(fs) => Ok(FileSystem {
                 name: fs.name,
@@ -107,12 +108,14 @@ impl VirtualFileSystem {
         }
 
         self.fs_skeletons.push(skel);
-        println!("{:?} {:?}", self.fs_skeletons, self.fs_skeletons.as_ptr());
         Ok(())
     }
 
-    fn find_mount(&self, path: &Path) -> Option<&MountPoint> {
-        self.mounts.iter().find(|mount| mount.path == *path)
+    fn find_mount(&self, path: &Path) -> Option<usize> {
+        self.mounts.iter().position(|mount| {
+            println!("mount.path: {} path: {}", mount.path, path);
+            &mount.path.as_path_ref() == path
+        })
     }
 
     fn mount(
@@ -136,12 +139,12 @@ impl VirtualFileSystem {
             );
         }
 
-        let parsed_path = match parse_path(path) {
+        let parsed_path = match parse_path(path.as_str()) {
             Some(s) => s,
             None => return Err(FileSystemError::InvalidPath),
         };
 
-        if self.find_mount(&parsed_path).is_some() {
+        if self.find_mount(&parsed_path.as_path_ref()).is_some() {
             return Err(FileSystemError::AlreadyMounted);
         }
 
@@ -154,29 +157,69 @@ impl VirtualFileSystem {
 
         Ok(())
     }
+
+    fn find_path_mount<'a>(&'a mut self, path: &Path) -> Option<&mut MountPoint> {
+        for i in (1..path.len() + 1).rev() {
+            let subpath = Path::new(&path[1..i]);
+            let mount = self.find_mount(&subpath);
+            match mount {
+                Some(mount) => return Some(&mut self.mounts[mount]),
+                None => continue,
+            };
+        }
+
+        None
+    }
+
+    fn open(&mut self, path: &str) -> Result<(), FileSystemError> {
+        let parsed_path = match parse_path(path) {
+            Some(s) => s,
+            None => return Err(FileSystemError::InvalidPath),
+        };
+
+        let mount = self
+            .find_path_mount(&parsed_path.as_path_ref())
+            .expect("Root filesystem is not mounted");
+        let subpath = get_mount_subpath(mount, &parsed_path);
+        let _inode = mount.fs.inner.open(&subpath)?;
+
+        todo!()
+    }
 }
 
 static VFS: RwLock<VirtualFileSystem> = RwLock::new(VirtualFileSystem::new());
 
+/// Extract the local mount path of a path
+fn get_mount_subpath<'a>(mount: &MountPoint, path: &'a PathOwned) -> Path<'a> {
+    Path::new(&path[mount.path.len()..1])
+}
+
 /// Parses a string and returns a vector of the parts without the /-s except the first
-fn parse_path(path: String) -> Option<Vec<String>> {
+fn parse_path(path: &str) -> Option<PathOwned> {
     if !path.starts_with("/") {
         return None;
     }
 
-    let parts: Vec<String> = [
-        [String::from("/")].to_vec(),
-        path.split("/")
-            .map(|s| String::from(s))
-            .collect::<Vec<String>>(),
-    ]
-    .concat();
-    Some(parts)
+    // TODO: check if there are invalid paths such as /test//test2
+
+    let path = path
+        .split("/")
+        .filter(|s| s.len() > 0)
+        .map(|s| String::from(s))
+        .collect::<Vec<String>>()
+        .into_boxed_slice();
+
+    Some(PathOwned(path))
 }
 
 pub fn mount(path: String, part: Weak<Partition>, fs_name: &str) -> Result<(), FileSystemError> {
     let mut vfs = VFS.write();
     vfs.mount(path, part, fs_name)
+}
+
+pub fn open(path: &str) -> Result<(), FileSystemError> {
+    let mut vfs = VFS.write();
+    vfs.open(path)
 }
 
 pub fn register_fs_skeleton(skel: FileSystemSkeleton) -> Result<(), FileSystemError> {
