@@ -9,7 +9,7 @@ pub mod path;
 
 #[derive(Debug)]
 pub enum FileSystemError {
-    FailedToInitialize,
+    FailedToInitializeFileSystem,
     AlreadyMounted,
     FsSkeletonNotFound,
     FsSkeletonAlreadyExists,
@@ -44,7 +44,7 @@ pub trait FileSystemInner {
 
 #[derive(Debug)]
 pub struct FileSystemSkeleton {
-    pub new: fn(part: Weak<Partition>) -> Box<dyn FileSystemInner>,
+    pub new: fn(part: Weak<Partition>) -> Result<Box<dyn FileSystemInner>, FileSystemError>,
     pub name: &'static str,
 }
 
@@ -83,7 +83,7 @@ impl VirtualFileSystem {
         match self.fs_skeletons.iter().find(|fs| fs.name == skel_name) {
             Some(fs) => Ok(FileSystem {
                 name: fs.name,
-                inner: (fs.new)(part),
+                inner: (fs.new)(part)?,
             }),
             None => Err(FileSystemError::FsSkeletonNotFound),
         }

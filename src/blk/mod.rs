@@ -7,7 +7,7 @@ use alloc::{
 };
 use spin::Mutex;
 
-const LBA_SIZE: usize = 512;
+pub const BLOCK_LBA_SIZE: usize = 512;
 
 struct BlockDeviceManager {
     block_devices: Vec<Rc<BlockDevice>>,
@@ -60,6 +60,12 @@ pub struct IORequest<'a> {
     /// Buffer to write from/read to, must equal __size__ multiplied by the size
     /// of an LBA of the target device
     pub buff: &'a mut [u8],
+}
+
+impl<'a> IORequest<'a> {
+    pub fn new(lba: usize, size: usize, buff: &'a mut [u8]) -> IORequest<'a> {
+        IORequest { lba, size, buff }
+    }
 }
 
 #[derive(Debug)]
@@ -138,11 +144,11 @@ pub fn get_partition(major: usize, minor: usize, part_idx: usize) -> Option<Weak
 
 /// Sends a read request to the target block device
 pub fn blk_read(block_device: &BlockDevice, req: IORequest) -> Result<(), BlockDeviceError> {
-    assert_eq!(req.size % LBA_SIZE, 0, "Invalid buffer size");
+    assert_eq!(req.size % BLOCK_LBA_SIZE, 0, "Invalid buffer size");
     assert_ne!(req.size, 0, "Invalid buffer size");
     assert_eq!(
         req.buff.len(),
-        req.size * LBA_SIZE,
+        req.size * BLOCK_LBA_SIZE,
         "Invalid buffer and buffer size"
     );
     assert!(req.lba < block_device.size, "Invalid LBA");
@@ -153,11 +159,11 @@ pub fn blk_read(block_device: &BlockDevice, req: IORequest) -> Result<(), BlockD
 
 /// Sends a write request to the target block device
 pub fn blk_write(block_device: &BlockDevice, req: IORequest) -> Result<(), BlockDeviceError> {
-    assert_eq!(req.size % LBA_SIZE, 0, "Invalid buffer size");
+    assert_eq!(req.size % BLOCK_LBA_SIZE, 0, "Invalid buffer size");
     assert_ne!(req.size, 0, "Invalid buffer size");
     assert_eq!(
         req.buff.len(),
-        req.size * LBA_SIZE,
+        req.size * BLOCK_LBA_SIZE,
         "Invalid buffer and buffer size"
     );
     assert!(req.lba < block_device.size, "Invalid LBA");
@@ -183,16 +189,16 @@ pub struct Partition {
 }
 
 impl Partition {
-    fn read(&self, req: IORequest) -> Result<(), BlockDeviceError> {
+    pub fn read(&self, req: IORequest) -> Result<(), BlockDeviceError> {
         let block_dev = self.block_device.upgrade().unwrap();
 
-        assert_eq!(req.size % LBA_SIZE, 0, "Invalid buffer size");
         assert_ne!(req.size, 0, "Invalid buffer size");
         assert_eq!(
             req.buff.len(),
-            req.size * LBA_SIZE,
+            req.size * BLOCK_LBA_SIZE,
             "Invalid buffer and buffer size"
         );
+        println!("{} {}", req.lba, self.size);
         assert!(req.lba < self.size, "Invalid LBA");
         assert!(req.lba + req.size < self.size, "Invalid LBA");
 
@@ -203,14 +209,13 @@ impl Partition {
         })
     }
 
-    fn write(&self, req: IORequest) -> Result<(), BlockDeviceError> {
+    pub fn write(&self, req: IORequest) -> Result<(), BlockDeviceError> {
         let block_dev = self.block_device.upgrade().unwrap();
 
-        assert_eq!(req.size % LBA_SIZE, 0, "Invalid buffer size");
         assert_ne!(req.size, 0, "Invalid buffer size");
         assert_eq!(
             req.buff.len(),
-            req.size * LBA_SIZE,
+            req.size * BLOCK_LBA_SIZE,
             "Invalid buffer and buffer size"
         );
         assert!(req.lba < self.size, "Invalid LBA");
