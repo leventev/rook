@@ -198,7 +198,6 @@ impl Partition {
             req.size * BLOCK_LBA_SIZE,
             "Invalid buffer and buffer size"
         );
-        println!("{} {}", req.lba, self.size);
         assert!(req.lba < self.size, "Invalid LBA");
         assert!(req.lba + req.size < self.size, "Invalid LBA");
 

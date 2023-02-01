@@ -1,4 +1,4 @@
-use core::ops::{Deref, Index, IndexMut, Range};
+use core::ops::{Deref, Index, IndexMut, Range, RangeFrom, RangeTo};
 
 use alloc::{boxed::Box, fmt, string::String};
 
@@ -68,6 +68,20 @@ impl Index<usize> for PathOwned {
 impl Index<Range<usize>> for PathOwned {
     type Output = [String];
     fn index(&self, index: Range<usize>) -> &Self::Output {
+        &self.0[index]
+    }
+}
+
+impl Index<RangeFrom<usize>> for PathOwned {
+    type Output = [String];
+    fn index(&self, index: RangeFrom<usize>) -> &Self::Output {
+        &self.0[index]
+    }
+}
+
+impl Index<RangeTo<usize>> for PathOwned {
+    type Output = [String];
+    fn index(&self, index: RangeTo<usize>) -> &Self::Output {
         &self.0[index]
     }
 }

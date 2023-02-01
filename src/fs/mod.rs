@@ -14,6 +14,7 @@ pub enum FileSystemError {
     FsSkeletonNotFound,
     FsSkeletonAlreadyExists,
     InvalidPath,
+    FileNotFound,
 }
 
 pub trait FileSystemInner {
@@ -112,10 +113,9 @@ impl VirtualFileSystem {
     }
 
     fn find_mount(&self, path: &Path) -> Option<usize> {
-        self.mounts.iter().position(|mount| {
-            println!("mount.path: {} path: {}", mount.path, path);
-            &mount.path.as_path_ref() == path
-        })
+        self.mounts
+            .iter()
+            .position(|mount| &mount.path.as_path_ref() == path)
     }
 
     fn mount(
@@ -191,7 +191,7 @@ static VFS: RwLock<VirtualFileSystem> = RwLock::new(VirtualFileSystem::new());
 
 /// Extract the local mount path of a path
 fn get_mount_subpath<'a>(mount: &MountPoint, path: &'a PathOwned) -> Path<'a> {
-    Path::new(&path[mount.path.len()..1])
+    Path::new(&path[mount.path.len()..])
 }
 
 /// Parses a string and returns a vector of the parts without the /-s except the first
