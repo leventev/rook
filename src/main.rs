@@ -91,7 +91,7 @@ pub extern "C" fn _start() -> ! {
     let part = blk::get_partition(1, 0, 0).unwrap();
     fs::mount(String::from("/"), part, "FAT").unwrap();
 
-    fs::open("/boot/limine/limine.cfg").unwrap();
+    fs::open("/a/b/c/d/e/f/g/h/test").unwrap();
 
     scheduler::init();
     scheduler::spawn_kernel_thread(main_init_thread);

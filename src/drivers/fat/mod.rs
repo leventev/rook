@@ -3,7 +3,7 @@ use core::{
     ops::Add,
 };
 
-use alloc::{borrow::ToOwned, boxed::Box, format, rc::Weak, string::String, vec::Vec};
+use alloc::{borrow::ToOwned, boxed::Box, format, rc::Weak, slice, string::String, vec::Vec};
 
 use crate::{
     blk::{IORequest, Partition, BLOCK_LBA_SIZE},
@@ -84,6 +84,8 @@ const LONG_DIR_ENTRY_LAST_ENTRY_MARKER: u8 = 0x40;
 const MAX_FILENAME_LENGTH: usize = 256;
 // TODO: utf-16
 const CHARS_PER_LONG_ENTRY: usize = 26;
+
+const FAT_ENTRIES_PER_SECTOR: usize = BLOCK_LBA_SIZE / core::mem::size_of::<u32>();
 
 #[repr(C, packed)]
 struct LongDirectoryEntry {
@@ -192,19 +194,35 @@ impl FATFileSystem {
     }
 
     #[inline]
-    fn cluster_fat_offset(&self, cluster: usize) -> usize {
-        cluster * core::mem::size_of::<u32>()
-    }
-
-    #[inline]
     fn fat_offset_sector(&self, cluster: usize) -> (usize, usize) {
-        let fat_offset = self.cluster_fat_offset(cluster);
-        let sector = self.reserved_sector_count + (fat_offset / BLOCK_LBA_SIZE);
-        let offset = fat_offset % BLOCK_LBA_SIZE;
-        (sector, offset)
+        let sector = cluster / FAT_ENTRIES_PER_SECTOR;
+        let idx = cluster % FAT_ENTRIES_PER_SECTOR;
+        (sector, idx)
     }
 
     #[inline]
+    fn fat_table_sector(&self, fat_sector_idx: usize) -> usize {
+        self.reserved_sector_count + fat_sector_idx
+    }
+
+    /// Read the specified cluster from the File Allocation Table
+    fn get_fat_entry(&self, cluster: usize) -> usize {
+        let offsets = self.fat_offset_sector(cluster);
+
+        let p = self.partition.upgrade().unwrap();
+        let mut sector_data: [u8; BLOCK_LBA_SIZE] = unsafe {
+            transmute(MaybeUninit::<[MaybeUninit<u8>; BLOCK_LBA_SIZE]>::uninit().assume_init())
+        };
+
+        let sector = self.fat_table_sector(offsets.0);
+        p.read(IORequest::new(sector, 1, &mut sector_data[..]))
+            .unwrap();
+
+        // TODO: do this safely
+        let ptr = unsafe { (sector_data.as_ptr() as *const u32).offset(offsets.1 as isize) };
+        (unsafe { *ptr } & 0x0FFFFFFF) as usize
+    }
+
     fn parse_short_dir_ent_filename(filename: &[u8; 11]) -> String {
         let filebase = &filename[..8];
         let filename_len = filebase.iter().position(|c| *c == ' ' as u8).unwrap();
@@ -225,99 +243,113 @@ impl FATFileSystem {
     }
 
     #[inline]
+    fn valid_cluster(cluster: u32) -> bool {
+        cluster < 0x0FFFFFF7
+    }
+
+    #[inline]
     fn fuse_cluster_parts(low: u16, high: u16) -> usize {
         u32::from_le_bytes([low as u8, (low >> 8) as u8, high as u8, (high >> 8) as u8]) as usize
     }
 
-    fn find_dir_ent(&self, dir_sector: usize, filename: &str) -> Option<DirectoryEntry> {
+    fn find_dir_ent(&self, dir_start_cluster: usize, filename: &str) -> Option<DirectoryEntry> {
         let p = self.partition.upgrade().unwrap();
         let mut sector_data: [u8; BLOCK_LBA_SIZE] = unsafe {
             transmute(MaybeUninit::<[MaybeUninit<u8>; BLOCK_LBA_SIZE]>::uninit().assume_init())
         };
 
-        p.read(IORequest::new(dir_sector, 1, &mut sector_data[..]))
-            .unwrap();
-
         let mut long_file_name = String::with_capacity(MAX_FILENAME_LENGTH);
+        let mut cluster = dir_start_cluster;
 
-        // TODO: check the other sectors of the directory
-        for i in 0..DIR_ENTRIES_PER_SECTOR {
-            let offset = i * core::mem::size_of::<ShortDirectoryEntry>();
+        while Self::valid_cluster(cluster as u32) {
+            let sector = self.cluster_sector_index(cluster);
+            p.read(IORequest::new(sector, 1, &mut sector_data[..]))
+                .unwrap();
 
-            // first byte of the entry
-            let long_entry = match sector_data[offset] {
-                // end of directory entries
-                0 => return None,
-                // unused
-                0xE5 => continue,
-                // attribute
-                _ => sector_data[offset + 0xB] == DIR_ENT_LONG_NAME,
-            };
+            // TODO: check the other sectors of the directory
+            for i in 0..DIR_ENTRIES_PER_SECTOR {
+                let offset = i * core::mem::size_of::<ShortDirectoryEntry>();
 
-            if long_entry {
-                let ent: &LongDirectoryEntry = unsafe {
-                    (sector_data.as_ptr().offset(offset as isize) as *const LongDirectoryEntry)
-                        .as_ref()
-                        .unwrap()
+                // first byte of the entry
+                let long_entry = match sector_data[offset] {
+                    // end of directory entries
+                    0 => return None,
+                    // unused
+                    0xE5 => continue,
+                    // attribute
+                    _ => sector_data[offset + 0xB] == DIR_ENT_LONG_NAME,
                 };
 
-                // remove the long dir entry flag
-                let order = if ent.order & LONG_DIR_ENTRY_LAST_ENTRY_MARKER > 0 {
-                    ent.order ^ LONG_DIR_ENTRY_LAST_ENTRY_MARKER
-                } else {
-                    ent.order
-                };
+                if long_entry {
+                    let ent: &LongDirectoryEntry = unsafe {
+                        (sector_data.as_ptr().offset(offset as isize) as *const LongDirectoryEntry)
+                            .as_ref()
+                            .unwrap()
+                    };
 
-                // directory entries cant cross sector boundaries supposedly
-                assert!(i + order as usize <= DIR_ENTRIES_PER_SECTOR);
+                    // remove the long dir entry flag
+                    let order = if ent.order & LONG_DIR_ENTRY_LAST_ENTRY_MARKER > 0 {
+                        ent.order ^ LONG_DIR_ENTRY_LAST_ENTRY_MARKER
+                    } else {
+                        ent.order
+                    };
 
-                let mut temp_str = String::with_capacity(CHARS_PER_LONG_ENTRY);
-                for c in [&ent.name1[..], &ent.name2[..], &ent.name3[..]]
-                    .concat()
-                    .chunks_exact(2)
-                    .into_iter()
-                    .map(|ch| u16::from_le_bytes([ch[0], ch[1]]))
-                {
-                    if c == 0xFFFF || c == 0x0 {
-                        break;
+                    // directory entries cant cross sector boundaries supposedly
+                    assert!(i + order as usize <= DIR_ENTRIES_PER_SECTOR);
+
+                    let mut temp_str = String::with_capacity(CHARS_PER_LONG_ENTRY);
+                    for c in [&ent.name1[..], &ent.name2[..], &ent.name3[..]]
+                        .concat()
+                        .chunks_exact(2)
+                        .into_iter()
+                        .map(|ch| u16::from_le_bytes([ch[0], ch[1]]))
+                    {
+                        if c == 0xFFFF || c == 0x0 {
+                            break;
+                        }
+
+                        // TODO: support utf16
+                        temp_str.push(c as u8 as char);
                     }
 
-                    // TODO: support utf16
-                    temp_str.push(c as u8 as char);
+                    long_file_name.insert_str(0, &temp_str);
+                } else {
+                    let ent: &ShortDirectoryEntry = unsafe {
+                        (sector_data.as_ptr().offset(offset as isize) as *const ShortDirectoryEntry)
+                            .as_ref()
+                            .unwrap()
+                    };
+
+                    let ent_type = if ent.attr & DIR_ENT_DIRECTORY > 0 {
+                        DirectoryEntryType::Directory
+                    } else {
+                        DirectoryEntryType::File(ent.file_size as usize)
+                    };
+
+                    if long_file_name.len() > 0 {
+                        if long_file_name != filename {
+                            long_file_name.clear();
+                            continue;
+                        }
+                    } else {
+                        // TODO: test this
+                        let full = &Self::parse_short_dir_ent_filename(&ent.name);
+                        if full != filename {
+                            continue;
+                        }
+                    };
+
+                    return Some(DirectoryEntry {
+                        data_cluster_start: Self::fuse_cluster_parts(
+                            ent.cluster_low,
+                            ent.cluster_high,
+                        ),
+                        ent_type,
+                    });
                 }
-
-                long_file_name.insert_str(0, &temp_str);
-            } else {
-                let ent: &ShortDirectoryEntry = unsafe {
-                    (sector_data.as_ptr().offset(offset as isize) as *const ShortDirectoryEntry)
-                        .as_ref()
-                        .unwrap()
-                };
-
-                let ent_type = if ent.attr & DIR_ENT_DIRECTORY > 0 {
-                    DirectoryEntryType::Directory
-                } else {
-                    DirectoryEntryType::File(ent.file_size as usize)
-                };
-
-                if long_file_name.len() > 0 {
-                    if long_file_name != filename {
-                        long_file_name.clear();
-                        continue;
-                    }
-                } else {
-                    // TODO: test this
-                    let full = &Self::parse_short_dir_ent_filename(&ent.name);
-                    if full != filename {
-                        continue;
-                    }
-                };
-
-                return Some(DirectoryEntry {
-                    data_cluster_start: Self::fuse_cluster_parts(ent.cluster_low, ent.cluster_high),
-                    ent_type,
-                });
             }
+
+            cluster = self.get_fat_entry(cluster);
         }
 
         None
@@ -326,12 +358,10 @@ impl FATFileSystem {
 
 impl FileSystemInner for FATFileSystem {
     fn open(&self, path: &Path) -> Result<usize, fs::FileSystemError> {
-        println!("trying to find file {}", path);
-
-        let root_sector = self.cluster_sector_index(self.root_cluster);
-        let mut start_sector = root_sector;
+        let root_dir_start_cluster = self.root_cluster;
+        let mut start_cluster = root_dir_start_cluster;
         for part in &path[..path.len() - 1] {
-            let dir_ent = self.find_dir_ent(start_sector, part.as_str());
+            let dir_ent = self.find_dir_ent(start_cluster, part.as_str());
             match dir_ent {
                 Some(ent) => {
                     match ent.ent_type {
@@ -339,7 +369,7 @@ impl FileSystemInner for FATFileSystem {
                         DirectoryEntryType::Directory => (),
                     }
 
-                    start_sector = self.cluster_sector_index(ent.data_cluster_start);
+                    start_cluster = ent.data_cluster_start;
                 }
                 None => {
                     return Err(FileSystemError::FileNotFound);
@@ -347,12 +377,10 @@ impl FileSystemInner for FATFileSystem {
             }
         }
 
-        let last_file = self.find_dir_ent(start_sector, path.last().unwrap());
+        let last_file = self.find_dir_ent(start_cluster, path.last().unwrap());
         if last_file.is_none() {
             return Err(FileSystemError::FileNotFound);
         }
-
-        println!("found file {}", path);
 
         todo!()
     }
