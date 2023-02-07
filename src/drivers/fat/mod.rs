@@ -4,7 +4,7 @@ use alloc::{boxed::Box, rc::Weak, string::String};
 
 use crate::{
     blk::{IORequest, Partition, BLOCK_LBA_SIZE},
-    fs::{self, inode::Inode, path::Path, FileSystemError, FileSystemInner, FileSystemSkeleton},
+    fs::{self, inode::FSInode, FileSystemError, FileSystemInner, FileSystemSkeleton},
 };
 
 #[repr(C, packed)]
@@ -354,13 +354,13 @@ impl FATFileSystem {
         None
     }
 
-    fn file_to_inode(directory_cluster: u32, directory_entry_index: usize) -> Inode {
+    fn file_to_inode(directory_cluster: u32, directory_entry_index: usize) -> FSInode {
         assert!(directory_entry_index < 16);
         assert!(directory_cluster < 0x0FFFFFFF);
-        Inode::new((directory_cluster as u64) << 4 | directory_entry_index as u64)
+        FSInode::new((directory_cluster as u64) << 4 | directory_entry_index as u64)
     }
 
-    const fn inode_to_file(inode: &Inode) -> (u32, usize) {
+    const fn inode_to_file(inode: &FSInode) -> (u32, usize) {
         // a FAT-32 inode is always less than u32::MAX
         assert!(inode.0 < u32::MAX as u64);
         let val = inode.0 as u32;
@@ -369,7 +369,7 @@ impl FATFileSystem {
 }
 
 impl FileSystemInner for FATFileSystem {
-    fn open(&self, path: &Path) -> Result<Inode, fs::FileSystemError> {
+    fn open(&self, path: &[String]) -> Result<FSInode, fs::FileSystemError> {
         let root_dir_start_cluster = self.root_cluster;
         let mut start_cluster = root_dir_start_cluster;
 
@@ -405,13 +405,13 @@ impl FileSystemInner for FATFileSystem {
         Ok(inode)
     }
 
-    fn close(&self, _inode: Inode) -> Result<(), fs::FileSystemError> {
+    fn close(&self, _inode: FSInode) -> Result<(), fs::FileSystemError> {
         todo!()
     }
 
     fn read(
         &self,
-        inode: Inode,
+        inode: FSInode,
         _offset: usize,
         _buff: &mut [u8],
         _size: usize,
@@ -421,7 +421,7 @@ impl FileSystemInner for FATFileSystem {
 
     fn write(
         &self,
-        _inode: Inode,
+        _inode: FSInode,
         _offset: usize,
         _buff: &[u8],
         _size: usize,

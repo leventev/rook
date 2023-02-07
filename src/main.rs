@@ -91,7 +91,12 @@ pub extern "C" fn _start() -> ! {
     let part = blk::get_partition(1, 0, 0).unwrap();
     fs::mount(String::from("/"), part, "FAT").unwrap();
 
-    fs::open("/a/b/c/d/e/f/g/h/test").unwrap();
+    let mut fd = fs::open("/a/b/c/d/e/f/g/h/test").unwrap();
+    println!("opened file");
+
+    let mut buff: [u8; 512] = [0; 512];
+    let read = fd.read(512, &mut buff[..]).unwrap();
+    println!("read {} bytes", read);
 
     scheduler::init();
     scheduler::spawn_kernel_thread(main_init_thread);

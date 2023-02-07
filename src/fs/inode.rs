@@ -1,16 +1,15 @@
-use core::ops::Add;
-
 use alloc::fmt;
 
-pub struct Inode(pub u64);
+#[derive(PartialEq, Clone, Copy)]
+pub struct FSInode(pub u64);
 
-impl Inode {
-    pub const fn new(val: u64) -> Inode {
-        Inode(val)
+impl FSInode {
+    pub const fn new(val: u64) -> FSInode {
+        FSInode(val)
     }
 }
 
-impl fmt::Display for Inode {
+impl fmt::Display for FSInode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
     }

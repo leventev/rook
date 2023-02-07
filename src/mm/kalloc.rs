@@ -1,6 +1,5 @@
 use core::{
     alloc::{GlobalAlloc, Layout},
-    mem,
 };
 use spin::Mutex;
 
