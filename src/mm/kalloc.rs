@@ -1,6 +1,4 @@
-use core::{
-    alloc::{GlobalAlloc, Layout},
-};
+use core::alloc::{GlobalAlloc, Layout};
 use spin::Mutex;
 
 use crate::{arch::x86_64::paging::PageFlags, utils};

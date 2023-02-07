@@ -354,6 +354,63 @@ impl FATFileSystem {
         None
     }
 
+    fn get_dir_ent(&self, dir_cluster: u32, index: usize) -> DirectoryEntry {
+        let p = self.partition.upgrade().unwrap();
+        let mut sector_data: [u8; BLOCK_LBA_SIZE] = unsafe {
+            transmute(MaybeUninit::<[MaybeUninit<u8>; BLOCK_LBA_SIZE]>::uninit().assume_init())
+        };
+
+        let sector = self.cluster_sector_index(dir_cluster);
+        p.read(IORequest::new(sector, 1, &mut sector_data[..]))
+            .unwrap();
+
+        let mut offset = index * core::mem::size_of::<ShortDirectoryEntry>();
+
+        // first byte of the entry
+        let long_entry = match sector_data[offset] {
+            // end of directory entries, unused
+            // TODO: return error
+            0 | 0xE5 => unreachable!(),
+            // attribute
+            _ => sector_data[offset + 0xB] == DIR_ENT_LONG_NAME,
+        };
+
+        if long_entry {
+            let ent: &LongDirectoryEntry = unsafe {
+                (sector_data.as_ptr().offset(offset as isize) as *const LongDirectoryEntry)
+                    .as_ref()
+                    .unwrap()
+            };
+
+            let order = if ent.order & LONG_DIR_ENTRY_LAST_ENTRY_MARKER > 0 {
+                ent.order ^ LONG_DIR_ENTRY_LAST_ENTRY_MARKER
+            } else {
+                ent.order
+            };
+
+            offset += order as usize * core::mem::size_of::<LongDirectoryEntry>();
+        }
+
+        let ent: &ShortDirectoryEntry = unsafe {
+            (sector_data.as_ptr().offset(offset as isize) as *const ShortDirectoryEntry)
+                .as_ref()
+                .unwrap()
+        };
+
+        let ent_type = if ent.attr & DIR_ENT_DIRECTORY > 0 {
+            DirectoryEntryType::Directory
+        } else {
+            DirectoryEntryType::File(ent.file_size as usize)
+        };
+
+        DirectoryEntry {
+            ent_type,
+            data_cluster_start: Self::fuse_cluster_parts(ent.cluster_low, ent.cluster_high),
+            directory_cluster: dir_cluster,
+            directory_cluster_index: index,
+        }
+    }
+
     fn file_to_inode(directory_cluster: u32, directory_entry_index: usize) -> FSInode {
         assert!(directory_entry_index < 16);
         assert!(directory_cluster < 0x0FFFFFFF);
@@ -373,9 +430,6 @@ impl FileSystemInner for FATFileSystem {
         let root_dir_start_cluster = self.root_cluster;
         let mut start_cluster = root_dir_start_cluster;
 
-        let mut directory_cluster: u32 = 0;
-        let mut directory_cluster_index: usize = 0;
-
         for part in &path[..path.len() - 1] {
             let dir_ent = self.find_dir_ent(start_cluster, part.as_str());
             match dir_ent {
@@ -386,8 +440,6 @@ impl FileSystemInner for FATFileSystem {
                     }
 
                     start_cluster = ent.data_cluster_start;
-                    directory_cluster = ent.directory_cluster;
-                    directory_cluster_index = ent.directory_cluster_index;
                 }
                 None => {
                     return Err(FileSystemError::FileNotFound);
@@ -396,13 +448,14 @@ impl FileSystemInner for FATFileSystem {
         }
 
         let last_file = self.find_dir_ent(start_cluster, path.last().unwrap());
-        if last_file.is_none() {
-            return Err(FileSystemError::FileNotFound);
+        match last_file {
+            Some(file) => {
+                let inode =
+                    Self::file_to_inode(file.directory_cluster, file.directory_cluster_index);
+                Ok(inode)
+            }
+            None => Err(FileSystemError::FileNotFound),
         }
-
-        let inode = Self::file_to_inode(directory_cluster, directory_cluster_index);
-
-        Ok(inode)
     }
 
     fn close(&self, _inode: FSInode) -> Result<(), fs::FileSystemError> {
@@ -412,11 +465,67 @@ impl FileSystemInner for FATFileSystem {
     fn read(
         &self,
         inode: FSInode,
-        _offset: usize,
-        _buff: &mut [u8],
-        _size: usize,
+        offset: usize,
+        buff: &mut [u8],
+        size: usize,
     ) -> Result<usize, fs::FileSystemError> {
-        todo!()
+        let part = self.partition.upgrade().unwrap();
+
+        let file_parts = Self::inode_to_file(&inode);
+
+        let file = self.get_dir_ent(file_parts.0, file_parts.1);
+
+        let file_size = match file.ent_type {
+            DirectoryEntryType::Directory => return Err(FileSystemError::IsDirectory),
+            DirectoryEntryType::File(n) => n,
+        };
+
+        let lba = offset / BLOCK_LBA_SIZE;
+        let mut cluster = file.data_cluster_start;
+        for _ in 0..lba {
+            cluster = self.get_fat_entry(cluster);
+            assert!(Self::valid_cluster(cluster));
+        }
+
+        let mut buff_left = size;
+        let mut size_left = file_size;
+        let mut total_read = 0;
+        let mut start_off = offset % BLOCK_LBA_SIZE;
+
+        let mut sector_buff: [u8; BLOCK_LBA_SIZE] = unsafe {
+            transmute(MaybeUninit::<[MaybeUninit<u8>; BLOCK_LBA_SIZE]>::uninit().assume_init())
+        };
+
+        while size_left > 0 && buff_left > 0 {
+            let read = (if start_off > 0 {
+                BLOCK_LBA_SIZE - start_off
+            } else {
+                size_left
+            }).min(BLOCK_LBA_SIZE).min(buff_left);
+            
+            let sub_buff = &mut buff[total_read..total_read + read];
+
+            let res = part.read(IORequest {
+                lba: self.cluster_sector_index(cluster),
+                buff: &mut sector_buff[..],
+                size: 1,
+            });
+            if res.is_err() {
+                return Err(FileSystemError::BlockDeviceError);
+            }
+
+            // TODO: optimize
+            for i in 0..read {
+                sub_buff[i] = sector_buff[i];
+            }
+
+            total_read += read;
+            size_left -= read;
+            buff_left -= read;
+            start_off = 0;
+        }
+
+        Ok(total_read)
     }
 
     fn write(

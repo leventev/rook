@@ -1,6 +1,4 @@
-use core::{
-    cell::{Cell, RefCell},
-};
+use core::cell::{Cell, RefCell};
 
 use alloc::{
     boxed::Box,
@@ -27,6 +25,8 @@ pub enum FileSystemError {
     InvalidPath,
     FileNotFound,
     InvalidBuffer,
+    BlockDeviceError,
+    IsDirectory
 }
 
 pub trait FileSystemInner {

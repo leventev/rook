@@ -96,7 +96,9 @@ pub extern "C" fn _start() -> ! {
 
     let mut buff: [u8; 512] = [0; 512];
     let read = fd.read(512, &mut buff[..]).unwrap();
-    println!("read {} bytes", read);
+    let s = core::str::from_utf8(&buff[..read]).unwrap();
+    
+    println!("read {} bytes: `{}`", read, s);
 
     scheduler::init();
     scheduler::spawn_kernel_thread(main_init_thread);
