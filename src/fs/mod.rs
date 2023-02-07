@@ -3,8 +3,12 @@ use spin::RwLock;
 
 use crate::blk::Partition;
 
-use self::path::{Path, PathOwned};
+use self::{
+    inode::Inode,
+    path::{Path, PathOwned},
+};
 
+pub mod inode;
 pub mod path;
 
 #[derive(Debug)]
@@ -19,15 +23,15 @@ pub enum FileSystemError {
 
 pub trait FileSystemInner {
     // Opens a file, returns the inode
-    fn open(&self, path: &Path) -> Result<usize, FileSystemError>;
+    fn open(&self, path: &Path) -> Result<Inode, FileSystemError>;
 
     // Opens a file, returns the inode
-    fn close(&self, inode: usize) -> Result<(), FileSystemError>;
+    fn close(&self, inode: Inode) -> Result<(), FileSystemError>;
 
     // Reads __size__ bytes into __buff__ from the __offset__, returns the number of bytes read
     fn read(
         &self,
-        inode: usize,
+        inode: Inode,
         offset: usize,
         buff: &mut [u8],
         size: usize,
@@ -36,7 +40,7 @@ pub trait FileSystemInner {
     // Write __size__ bytes from __buff__ to the __offset__, returns the number of bytes written
     fn write(
         &self,
-        inode: usize,
+        inode: Inode,
         offset: usize,
         buff: &[u8],
         size: usize,
@@ -112,12 +116,6 @@ impl VirtualFileSystem {
         Ok(())
     }
 
-    fn find_mount(&self, path: &Path) -> Option<usize> {
-        self.mounts
-            .iter()
-            .position(|mount| &mount.path.as_path_ref() == path)
-    }
-
     fn mount(
         &mut self,
         path: String,
@@ -144,7 +142,7 @@ impl VirtualFileSystem {
             None => return Err(FileSystemError::InvalidPath),
         };
 
-        if self.find_mount(&parsed_path.as_path_ref()).is_some() {
+        if self.find_path_mount(&parsed_path.as_path_ref()).is_some() {
             return Err(FileSystemError::AlreadyMounted);
         }
 
@@ -158,12 +156,17 @@ impl VirtualFileSystem {
         Ok(())
     }
 
-    fn find_path_mount<'a>(&'a mut self, path: &Path) -> Option<&mut MountPoint> {
+    fn find_path_mount(&mut self, path: &Path) -> Option<&mut MountPoint> {
+        let mounts = &mut self.mounts;
         for i in (1..path.len() + 1).rev() {
             let subpath = Path::new(&path[1..i]);
-            let mount = self.find_mount(&subpath);
-            match mount {
-                Some(mount) => return Some(&mut self.mounts[mount]),
+
+            let pos = mounts
+                .iter_mut()
+                .position(|mount| *&mount.path.as_path_ref() == subpath);
+
+            match pos {
+                Some(idx) => return Some(&mut self.mounts[idx]),
                 None => continue,
             };
         }
@@ -181,7 +184,11 @@ impl VirtualFileSystem {
             .find_path_mount(&parsed_path.as_path_ref())
             .expect("Root filesystem is not mounted");
         let subpath = get_mount_subpath(mount, &parsed_path);
-        let _inode = mount.fs.inner.open(&subpath)?;
+        let inode = mount.fs.inner.open(&subpath)?;
+        println!("inode: {}", inode);
+
+        let mut a: [u8; 256] = [0; 256];
+        mount.fs.inner.read(inode, 0, &mut a[..], 1)?;
 
         todo!()
     }
@@ -219,6 +226,7 @@ pub fn mount(path: String, part: Weak<Partition>, fs_name: &str) -> Result<(), F
 
 pub fn open(path: &str) -> Result<(), FileSystemError> {
     let mut vfs = VFS.write();
+    println!("vfs open {}", path);
     vfs.open(path)
 }
 
