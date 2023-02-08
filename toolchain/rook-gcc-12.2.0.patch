@@ -1,0 +1,121 @@
+diff -ruN gcc-12.2.0/config.sub gcc-12.2.0-diff/config.sub
+--- gcc-12.2.0/config.sub	2022-08-19 10:09:52.128656687 +0200
++++ gcc-12.2.0-diff/config.sub	2023-02-07 23:30:29.109309426 +0100
+@@ -1749,7 +1749,7 @@
+ 	     | onefs* | tirtos* | phoenix* | fuchsia* | redox* | bme* \
+ 	     | midnightbsd* | amdhsa* | unleashed* | emscripten* | wasi* \
+ 	     | nsk* | powerunix* | genode* | zvmoe* | qnx* | emx* | zephyr* \
+-	     | fiwix* )
++	     | fiwix* | rook* )
+ 		;;
+ 	# This one is extra strict with allowed versions
+ 	sco3.2v2 | sco3.2v[4-9]* | sco5v6*)
+diff -ruN gcc-12.2.0/fixincludes/mkfixinc.sh gcc-12.2.0-diff/fixincludes/mkfixinc.sh
+--- gcc-12.2.0/fixincludes/mkfixinc.sh	2022-08-19 10:09:52.160657095 +0200
++++ gcc-12.2.0-diff/fixincludes/mkfixinc.sh	2023-02-07 23:38:03.997941419 +0100
+@@ -19,6 +19,8 @@
+     powerpc-*-rtems*   | \
+     powerpcle-*-eabisim* | \
+     powerpcle-*-eabi* | \
++    *-rook* | \
++    *-*-rook* | \
+     *-*-vxworks7* | \
+     *-musl* )
+ 	#  IF there is no include fixing,
+diff -ruN gcc-12.2.0/gcc/config/rook.h gcc-12.2.0-diff/gcc/config/rook.h
+--- gcc-12.2.0/gcc/config/rook.h	1970-01-01 01:00:00.000000000 +0100
++++ gcc-12.2.0-diff/gcc/config/rook.h	2023-02-07 23:35:34.258432630 +0100
+@@ -0,0 +1,28 @@
++/* Useful if you wish to make target-specific GCC changes. */
++#undef TARGET_ROOK
++#define TARGET_ROOK 1
++
++/* Default arguments you want when running your
++   i686-rook-gcc/x86_64-rook-gcc toolchain */
++#undef LIB_SPEC
++#define LIB_SPEC "-lc" /* link against C standard library */
++
++/* Files that are linked before user code.
++   The %s tells GCC to look for these files in the library directory. */
++#undef STARTFILE_SPEC
++#define STARTFILE_SPEC "crt0.o%s crti.o%s crtbegin.o%s"
++
++/* Files that are linked after user code. */
++#undef ENDFILE_SPEC
++#define ENDFILE_SPEC "crtend.o%s crtn.o%s"
++
++/* Additional predefined macros. */
++#undef TARGET_OS_CPP_BUILTINS
++#define TARGET_OS_CPP_BUILTINS()      \
++  do {                                \
++    builtin_define ("__rook__");      \
++    builtin_define ("__unix__");      \
++    builtin_assert ("system=rook");   \
++    builtin_assert ("system=unix");   \
++    builtin_assert ("system=posix");  \
++  } while(0);
+\ No newline at end of file
+diff -ruN gcc-12.2.0/gcc/config.gcc gcc-12.2.0-diff/gcc/config.gcc
+--- gcc-12.2.0/gcc/config.gcc	2022-08-19 10:09:52.552662114 +0200
++++ gcc-12.2.0-diff/gcc/config.gcc	2023-02-07 23:34:50.370933080 +0100
+@@ -673,6 +673,12 @@
+ 
+ # Common parts for widely ported systems.
+ case ${target} in
++*-*-rook*)
++    gas=yes
++    gnu_ld=yes
++    default_use_cxa_atexit=yes
++    use_gcc_stdint=wrap
++    ;;
+ *-*-darwin*)
+   tmake_file="t-darwin "
+   tm_file="${tm_file} darwin.h"
+@@ -1124,6 +1130,12 @@
+ 	done
+ 	TM_MULTILIB_CONFIG=`echo $TM_MULTILIB_CONFIG | sed 's/^,//'`
+ 	;;
++i[34567]86-*-rook*)
++   tm_file="${tm_file} i386/unix.h i386/att.h dbxelf.h elfos.h glibc-stdint.h i386/i386elf.h rook.h"
++   ;;
++x86_64-*-rook*)
++   tm_file="${tm_file} i386/unix.h i386/att.h dbxelf.h elfos.h glibc-stdint.h i386/i386elf.h i386/x86-64.h rook.h"
++   ;;
+ aarch64*-*-freebsd*)
+ 	tm_file="${tm_file} dbxelf.h elfos.h ${fbsd_tm_file}"
+ 	tm_file="${tm_file} aarch64/aarch64-elf.h aarch64/aarch64-errata.h aarch64/aarch64-freebsd.h"
+diff -ruN gcc-12.2.0/libgcc/config.host gcc-12.2.0-diff/libgcc/config.host
+--- gcc-12.2.0/libgcc/config.host	2022-08-19 10:09:54.664689148 +0200
++++ gcc-12.2.0-diff/libgcc/config.host	2023-02-07 23:37:04.136805154 +0100
+@@ -376,6 +376,14 @@
+ esac
+ 
+ case ${host} in
++i[34567]86-*-rook*)
++	extra_parts="$extra_parts crti.o crtbegin.o crtend.o crtn.o"
++	tmake_file="$tmake_file i386/t-crtstuff t-crtstuff-pic t-libgcc-pic"
++	;;
++x86_64-*-rook*)
++	extra_parts="$extra_parts crti.o crtbegin.o crtend.o crtn.o"
++	tmake_file="$tmake_file i386/t-crtstuff t-crtstuff-pic t-libgcc-pic"
++	;;
+ aarch64*-*-elf | aarch64*-*-rtems*)
+ 	extra_parts="$extra_parts crtbegin.o crtend.o crti.o crtn.o"
+ 	extra_parts="$extra_parts crtfastmath.o"
+diff -ruN gcc-12.2.0/libstdc++-v3/crossconfig.m4 gcc-12.2.0-diff/libstdc++-v3/crossconfig.m4
+--- gcc-12.2.0/libstdc++-v3/crossconfig.m4	2022-08-19 10:09:55.420698825 +0200
++++ gcc-12.2.0-diff/libstdc++-v3/crossconfig.m4	2023-02-07 23:36:24.916060732 +0100
+@@ -9,6 +9,13 @@
+     # This is a freestanding configuration; there is nothing to do here.
+     ;;
+ 
++  *-rook*)
++    GLIBCXX_CHECK_COMPILER_FEATURES
++    GLIBCXX_CHECK_LINKER_FEATURES
++    GLIBCXX_CHECK_MATH_SUPPORT
++    GLIBCXX_CHECK_STDLIB_SUPPORT
++    ;;
++
+   avr*-*-*)
+     AC_DEFINE(HAVE_ACOSF)
+     AC_DEFINE(HAVE_ASINF)
