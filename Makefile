@@ -1,3 +1,5 @@
+ARCH=x86_64
+
 CARGOFLAGS=--target x86_64-rook.json
 RUSTFLAGS=-Cforce-frame-pointers=yes
 QEMUFLAGS=-m 128M -serial stdio -vga std -no-reboot -no-shutdown\
@@ -45,15 +47,15 @@ sysroot:
 	mkdir -p $(SYSROOT)/usr/include
 	mkdir -p $(SYSROOT)/usr/lib
 
-libc-headers: sysroot
-	cp -rT libc/include/public $(SYSROOT)/usr/include
+copy-libc-headers: sysroot
+	cp -rfT libc/include/public $(SYSROOT)/usr/include
 
-libc: libc-headers
-	cp include/ark/arch/x86/syscalls.h libc/include/public
+libc: copy-libc-headers
+#	cp include/ark/arch/x86/syscalls.h libc/include/public
 # TODO: remove ^
 	cd libc && $(MAKE)
 	cp libc/bin/libc.a $(SYSROOT)/usr/lib/
-	cp libc/bin/src/crt0.s.o $(SYSROOT)/usr/lib/crt0.o
+	cp libc/bin/arch/$(ARCH)/crt0.s.o $(SYSROOT)/usr/lib/crt0.o
 
 build-binutils:
 	mkdir -p binutils_build
