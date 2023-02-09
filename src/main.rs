@@ -10,6 +10,7 @@
 #![feature(const_ptr_as_ref)]
 #![feature(const_option)]
 
+#[macro_use]
 extern crate alloc;
 
 #[macro_use]
@@ -101,7 +102,7 @@ pub extern "C" fn _start() -> ! {
 
 fn main_init_thread() {
     println!("main init thread");
-    proc::load_process("/bin/test");
+    proc::load_base_process("/bin/test");
     loop {}
 }
 

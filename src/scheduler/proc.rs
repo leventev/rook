@@ -1,4 +1,8 @@
-use alloc::vec::Vec;
+use alloc::{
+    boxed::Box,
+    vec::{self, Vec},
+};
+use elf::{abi::PT_LOAD, endian::LittleEndian, ElfBytes};
 use spin::Mutex;
 
 use crate::fs::{self, FileSystemError};
@@ -25,7 +29,7 @@ impl Process {
 
 fn get_new_pid() -> usize {
     let mut processes = PROCESSES.lock();
-    let pid = match processes.iter().position(|x| x.is_none()) {
+    let pid = match processes.iter().position(Option::is_none) {
         Some(x) => x,
         None => {
             let old_len = processes.len();
@@ -37,11 +41,42 @@ fn get_new_pid() -> usize {
     pid
 }
 
-pub fn load_process(path: &str) {
-    let fd = fs::open(path).unwrap();
+pub fn load_process(proc: &mut Process, exec_path: &str) -> bool {
+    let mut fd = fs::open(exec_path).unwrap();
     let info = fd.file_info().unwrap();
     println!("{} {}", info.size, info.blocks_used);
 
-    let proc = Process::new();
+    // TODO: perhaps we can parse the ELF header without reading the whole file
+    // and instead later reading the file to userspace
+    // TODO: don't unnecessarily zero the memory
+    let mut buff: Box<[u8]> = vec![0; info.size].into_boxed_slice();
+    println!("buff.len: {} info.size: {}", buff.len(), info.size);
+    if fd.read(info.size, &mut buff[..]).is_err() {
+        return false;
+    }
+
+    let elf_file = match ElfBytes::<LittleEndian>::minimal_parse(&buff[..]) {
+        Ok(file) => file,
+        Err(_) => return false,
+    };
+
+    let segments = match elf_file.segments() {
+        Some(segs) => segs,
+        None => return false,
+    }
+    .iter()
+    .filter(|seg| seg.p_type == PT_LOAD);
+
+    for ph in segments {
+        println!("{:?}", ph);
+    }
+
+    true
+}
+
+pub fn load_base_process(exec_path: &str) {
+    let mut proc = Process::new();
     println!("PID {}", proc.pid);
+
+    load_process(&mut proc, exec_path);
 }

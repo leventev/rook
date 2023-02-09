@@ -12,15 +12,14 @@ const RECURSIVE_PML4_INDEX: u64 = 510;
 
 // TODO: support other arches, and abstract all virtual memory operations
 struct VirtualMemoryManager {
-    pml4_phys: PhysAddr,
     initialized: bool,
 }
 
 impl VirtualMemoryManager {
     // Initializes the virtual memory manager
     pub fn init(&mut self, hhdm: VirtAddr) {
-        self.pml4_phys = PhysAddr(unsafe { get_cr3() });
-        let pml4_virt = hhdm + VirtAddr::new(self.pml4_phys.get());
+        let pml4_phys = PhysAddr(unsafe { get_cr3() });
+        let pml4_virt = hhdm + VirtAddr::new(pml4_phys.get());
 
         // cant use map_mpl4 here because the recursive mappings havent been
         // estabilished yet
@@ -28,7 +27,7 @@ impl VirtualMemoryManager {
             core::slice::from_raw_parts_mut(pml4_virt.0 as *mut u64, PAGE_ENTRIES as usize)
         };
         pml4[RECURSIVE_PML4_INDEX as usize] =
-            self.pml4_phys.get() | (PageFlags::READ_WRITE | PageFlags::PRESENT).bits();
+            pml4_phys.get() | (PageFlags::READ_WRITE | PageFlags::PRESENT).bits();
 
         self.initialized = true;
     }
@@ -489,7 +488,6 @@ impl VirtualMemoryManager {
 }
 
 static VIRTUAL_MEMORY_MANAGER: Mutex<VirtualMemoryManager> = Mutex::new(VirtualMemoryManager {
-    pml4_phys: PhysAddr::zero(),
     initialized: false,
 });
 

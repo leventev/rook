@@ -116,6 +116,7 @@ pub struct FileInfo {
 
 impl FileDescriptor {
     pub fn read(&mut self, size: usize, buff: &mut [u8]) -> Result<usize, FileSystemError> {
+        println!("{} {}", buff.len(), size);
         if buff.len() != size {
             return Err(FileSystemError::InvalidBuffer);
         }
