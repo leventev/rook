@@ -26,7 +26,7 @@ pub enum FileSystemError {
     FileNotFound,
     InvalidBuffer,
     BlockDeviceError,
-    IsDirectory
+    IsDirectory,
 }
 
 pub trait FileSystemInner {
@@ -53,6 +53,8 @@ pub trait FileSystemInner {
         buff: &[u8],
         size: usize,
     ) -> Result<usize, FileSystemError>;
+
+    fn file_info(&self, inode: FSInode) -> Result<FileInfo, FileSystemError>;
 }
 
 #[derive(Debug)]
@@ -106,6 +108,12 @@ pub struct FileDescriptor {
     offset: usize,
 }
 
+#[derive(Clone, Copy)]
+pub struct FileInfo {
+    pub size: usize,
+    pub blocks_used: usize,
+}
+
 impl FileDescriptor {
     pub fn read(&mut self, size: usize, buff: &mut [u8]) -> Result<usize, FileSystemError> {
         if buff.len() != size {
@@ -141,6 +149,13 @@ impl FileDescriptor {
         self.offset += read;
 
         Ok(read)
+    }
+
+    pub fn file_info(&self) -> Result<FileInfo, FileSystemError> {
+        let vnode = self.node.upgrade().unwrap();
+        let mount = vnode.mount.upgrade().unwrap();
+
+        mount.fs.inner.file_info(vnode.inode)
     }
 }
 
@@ -264,7 +279,6 @@ impl VirtualFileSystem {
 
         if !mount.nodes.borrow().contains_key(subpath) {
             let inode = mount.fs.inner.open(&subpath)?;
-            println!("inode: {}", inode);
 
             let n = VFSNode {
                 mount: Rc::downgrade(&mount),
@@ -279,7 +293,6 @@ impl VirtualFileSystem {
                 .insert(subpath.to_vec(), Rc::new(n));
         }
 
-        println!("open {}", path);
         let binding = mount.nodes.borrow();
         let node = binding.get(subpath).unwrap();
 
@@ -300,7 +313,6 @@ fn parse_path(path: &str) -> Option<Vec<String>> {
     }
 
     // TODO: check if there are invalid paths such as /test//test2
-
     let path = path
         .split("/")
         .filter(|s| s.len() > 0)

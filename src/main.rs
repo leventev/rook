@@ -30,7 +30,10 @@ use limine::{
     LimineBootInfoRequest, LimineBootTimeRequest, LimineHhdmRequest, LimineMemmapRequest,
 };
 
-use crate::arch::x86_64::{idt, pic, stacktrace};
+use crate::{
+    arch::x86_64::{idt, pic, stacktrace},
+    scheduler::proc,
+};
 
 static BOOTLOADER_INFO: LimineBootInfoRequest = LimineBootInfoRequest::new(0);
 static MMAP_INFO: LimineMemmapRequest = LimineMemmapRequest::new(0);
@@ -91,22 +94,15 @@ pub extern "C" fn _start() -> ! {
     let part = blk::get_partition(1, 0, 0).unwrap();
     fs::mount(String::from("/"), part, "FAT").unwrap();
 
-    let mut fd = fs::open("/a/b/c/d/e/f/g/h/test").unwrap();
-    println!("opened file");
-
-    let mut buff: [u8; 512] = [0; 512];
-    let read = fd.read(512, &mut buff[..]).unwrap();
-    let s = core::str::from_utf8(&buff[..read]).unwrap();
-    
-    println!("read {} bytes: `{}`", read, s);
-
     scheduler::init();
     scheduler::spawn_kernel_thread(main_init_thread);
     scheduler::start();
 }
 
 fn main_init_thread() {
-    println!("hi");
+    println!("main init thread");
+    proc::load_process("/bin/test");
+    loop {}
 }
 
 #[panic_handler]

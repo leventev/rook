@@ -4,7 +4,8 @@ use alloc::{boxed::Box, rc::Weak, string::String};
 
 use crate::{
     blk::{IORequest, Partition, BLOCK_LBA_SIZE},
-    fs::{self, inode::FSInode, FileSystemError, FileSystemInner, FileSystemSkeleton},
+    fs::{self, inode::FSInode, FileInfo, FileSystemError, FileSystemInner, FileSystemSkeleton},
+    utils,
 };
 
 #[repr(C, packed)]
@@ -501,8 +502,10 @@ impl FileSystemInner for FATFileSystem {
                 BLOCK_LBA_SIZE - start_off
             } else {
                 size_left
-            }).min(BLOCK_LBA_SIZE).min(buff_left);
-            
+            })
+            .min(BLOCK_LBA_SIZE)
+            .min(buff_left);
+
             let sub_buff = &mut buff[total_read..total_read + read];
 
             let res = part.read(IORequest {
@@ -536,6 +539,21 @@ impl FileSystemInner for FATFileSystem {
         _size: usize,
     ) -> Result<usize, fs::FileSystemError> {
         todo!()
+    }
+
+    fn file_info(&self, inode: FSInode) -> Result<fs::FileInfo, FileSystemError> {
+        let file_parts = Self::inode_to_file(&inode);
+        let file = self.get_dir_ent(file_parts.0, file_parts.1);
+
+        let file_size = match file.ent_type {
+            DirectoryEntryType::Directory => 0,
+            DirectoryEntryType::File(n) => n,
+        };
+
+        Ok(FileInfo {
+            blocks_used: utils::div_and_ceil(file_size, BLOCK_LBA_SIZE),
+            size: file_size,
+        })
     }
 }
 

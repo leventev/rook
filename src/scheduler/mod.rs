@@ -1,3 +1,5 @@
+pub mod proc;
+
 use crate::{
     arch::x86_64::{self, paging::PageFlags},
     mm::{phys, virt, PhysAddr, VirtAddr},
@@ -52,8 +54,39 @@ pub struct RegisterState {
     ss: u64,
 }
 
+
 impl RegisterState {
-    fn new() -> RegisterState {
+    fn kernel_new() -> RegisterState {
+        RegisterState {
+            rax: 0,
+            rbx: 0,
+            rcx: 0,
+            rdx: 0,
+            rsi: 0,
+            rdi: 0,
+            r8: 0,
+            r9: 0,
+            r10: 0,
+            r11: 0,
+            r12: 0,
+            r13: 0,
+            r14: 0,
+            r15: 0,
+            rbp: 0,
+            es: 0x30,
+            ds: 0x30,
+            fs: 0x30,
+            gs: 0x30,
+            rip: 0,
+            cs: 0x28,
+            rflags: (x86_64::Rflags::INTERRUPT | x86_64::Rflags::RESERVED_BIT_1).bits(),
+            // FIXME: this may not be the best option ^^^^
+            rsp: 0,
+            ss: 0x30,
+        }
+    }
+
+    fn user_new() -> RegisterState {
         RegisterState {
             rax: 0,
             rbx: 0,
@@ -123,10 +156,17 @@ pub struct Thread {
 }
 
 impl Thread {
-    fn new() -> Thread {
+    fn new_kernel_thread() -> Thread {
         Thread {
             id: 0,
-            regs: RegisterState::new(),
+            regs: RegisterState::kernel_new(),
+        }
+    }
+
+    fn new_user_thread() -> Thread {
+        Thread {
+            id: 0,
+            regs: RegisterState::user_new(),
         }
     }
 }
@@ -152,7 +192,7 @@ impl Scheduler {
 
     /// spawns a kernel thread and returns the thread id
     fn spawn_kernel_thread(&mut self, func: fn()) -> usize {
-        let mut thread = Thread::new();
+        let mut thread = Thread::new_kernel_thread();
         let tid = self.temp_counter;
         self.temp_counter += 1;
 
