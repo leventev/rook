@@ -4,11 +4,16 @@ extern pit_timer_interrupt
 extern ticks_until_switch
 extern save_regs
 
+section .data
+rax_temp: dq 0
+
 ; this is wildly unoptimized and slow
 section .text
 global __pit_timer_interrupt:function (__pit_timer_interrupt.end - __pit_timer_interrupt)
 __pit_timer_interrupt:
     cli
+
+    mov [rax_temp], rax
 
     mov rax, gs
     push rax
@@ -36,10 +41,11 @@ __pit_timer_interrupt:
     push rdx
     push rcx
     push rbx
+    mov rax, [rax_temp]
     push rax
 
     ; save registers
-    call save_regs
+    ;call save_regs
 .call_timer:
     call pit_timer_interrupt
 
