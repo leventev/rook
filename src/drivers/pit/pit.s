@@ -45,7 +45,7 @@ __pit_timer_interrupt:
     push rax
 
     ; save registers
-    ;call save_regs
+    call save_regs
 .call_timer:
     call pit_timer_interrupt
 
