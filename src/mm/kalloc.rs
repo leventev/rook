@@ -1,7 +1,10 @@
 use core::alloc::{GlobalAlloc, Layout};
 use spin::Mutex;
 
-use crate::{arch::x86_64::paging::PageFlags, utils};
+use crate::{
+    arch::x86_64::paging::PageFlags,
+    utils,
+};
 
 use super::{phys, virt, VirtAddr};
 
@@ -147,7 +150,7 @@ impl KernelAllocatorInner {
         for i in 0..pages {
             let virt = KERNEL_HEAP_START + VirtAddr(i as u64 * 4096);
             let phys = phys::alloc();
-            virt::map(virt, phys, PageFlags::READ_WRITE);
+            virt::map_4kib(virt, phys, PageFlags::READ_WRITE);
         }
 
         let head = KernelAllocatorInner::head();

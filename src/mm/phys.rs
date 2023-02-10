@@ -54,6 +54,7 @@ impl PhysAllocator {
                     .as_ref()
                     .expect("invalid memory map response")
             };
+
             if entry.typ != LimineMemoryMapEntryType::Usable {
                 continue;
             }

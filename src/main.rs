@@ -58,13 +58,6 @@ pub extern "C" fn _start() -> ! {
         );
     }
 
-    mm::phys::init(
-        MMAP_INFO
-            .get_response()
-            .get()
-            .expect("Memory map request failed"),
-    );
-
     let hhdm = HHDM_INFO
         .get_response()
         .get()
@@ -72,7 +65,14 @@ pub extern "C" fn _start() -> ! {
         .offset;
 
     mm::virt::init(hhdm);
-    mm::virt::dump_pml4();
+
+    let mmap = MMAP_INFO
+        .get_response()
+        .get()
+        .expect("Memory map request failed");
+
+    mm::phys::init(mmap);
+    mm::virt::map_physical_address_space();
 
     idt::init();
     pic::init();

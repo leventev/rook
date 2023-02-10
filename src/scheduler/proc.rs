@@ -1,11 +1,8 @@
-use alloc::{
-    boxed::Box,
-    vec::{self, Vec},
-};
+use alloc::{boxed::Box, vec::Vec};
 use elf::{abi::PT_LOAD, endian::LittleEndian, ElfBytes};
 use spin::Mutex;
 
-use crate::fs::{self, FileSystemError};
+use crate::fs;
 
 use super::Thread;
 
@@ -41,7 +38,7 @@ fn get_new_pid() -> usize {
     pid
 }
 
-pub fn load_process(proc: &mut Process, exec_path: &str) -> bool {
+pub fn load_process(_proc: &mut Process, exec_path: &str) -> bool {
     let mut fd = fs::open(exec_path).unwrap();
     let info = fd.file_info().unwrap();
     println!("{} {}", info.size, info.blocks_used);

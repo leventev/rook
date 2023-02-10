@@ -1,7 +1,10 @@
 pub mod proc;
 
 use crate::{
-    arch::x86_64::{self, paging::PageFlags},
+    arch::x86_64::{
+        self,
+        paging::PageFlags
+    },
     mm::{phys, virt, PhysAddr, VirtAddr},
 };
 use core::arch::asm;
@@ -53,7 +56,6 @@ pub struct RegisterState {
     rsp: u64,
     ss: u64,
 }
-
 
 impl RegisterState {
     fn kernel_new() -> RegisterState {
@@ -387,7 +389,7 @@ pub fn init() {
             let phys = phys_start + PhysAddr::new(j as u64 * 4096);
             let virt =
                 KERNEL_THREAD_STACKS_START + VirtAddr::new((i * ALLOC_AT_ONCE + j) as u64 * 4096);
-            virt::map(virt, phys, PageFlags::READ_WRITE);
+            virt::map_4kib(virt, phys, PageFlags::READ_WRITE);
         }
     }
 
