@@ -13,3 +13,11 @@ pub fn div_and_ceil(left: usize, right: usize) -> usize {
         left / right
     }
 }
+
+pub fn zero_page(table: *mut u64) {
+    for i in 0..4096 / 8 {
+        unsafe {
+            table.offset(i).write(0);
+        }
+    }
+}

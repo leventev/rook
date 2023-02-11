@@ -6,6 +6,8 @@ pub mod stacktrace;
 
 use core::arch::asm;
 
+use crate::mm::PhysAddr;
+
 bitflags::bitflags! {
     pub struct Rflags: u64 {
         const CARRY = 1 << 0;
@@ -108,4 +110,8 @@ pub fn disable_interrupts() {
 pub fn interrupts_enabled() -> bool {
     let rflags = unsafe { get_rflags() };
     (rflags & Rflags::INTERRUPT.bits) != 0
+}
+
+pub fn get_current_pml4() -> PhysAddr {
+    PhysAddr::new(unsafe { get_cr3() })
 }

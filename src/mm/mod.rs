@@ -83,6 +83,10 @@ impl PhysAddr {
     pub const fn zero() -> PhysAddr {
         PhysAddr(0)
     }
+
+    pub fn virt_addr(&self) -> VirtAddr {
+        VirtAddr::new(virt::PHYSICAL_ADDRESS_SPACE_VIRT_ADDR.get() + self.0)
+    }
 }
 
 impl ops::Add<PhysAddr> for PhysAddr {

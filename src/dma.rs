@@ -1,6 +1,4 @@
-use crate::{
-    mm::{PhysAddr, VirtAddr},
-};
+use crate::mm::{PhysAddr, VirtAddr};
 
 //static CURRENT_POINTER: Mutex<VirtAddr> = Mutex::new(DMA_START);
 

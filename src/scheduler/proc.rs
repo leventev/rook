@@ -2,13 +2,17 @@ use alloc::{boxed::Box, vec::Vec};
 use elf::{abi::PT_LOAD, endian::LittleEndian, ElfBytes};
 use spin::Mutex;
 
-use crate::fs;
+use crate::{
+    fs,
+    mm::{phys, virt, PhysAddr}, arch::x86_64::get_current_pml4,
+};
 
 use super::Thread;
 
 pub struct Process {
     pid: usize,
     main_thread: Thread,
+    pml4_phys: PhysAddr,
 }
 
 static PROCESSES: Mutex<Vec<Option<Process>>> = Mutex::new(Vec::new());
@@ -17,9 +21,13 @@ impl Process {
     fn new() -> Process {
         let pid = get_new_pid();
 
+        let pml4 = phys::alloc();
+        virt::copy_pml4_higher_half_entries(pml4, get_current_pml4());
+
         Process {
             pid,
             main_thread: Thread::new_kernel_thread(),
+            pml4_phys: pml4,
         }
     }
 }

@@ -1,10 +1,7 @@
 pub mod proc;
 
 use crate::{
-    arch::x86_64::{
-        self,
-        paging::PageFlags
-    },
+    arch::x86_64::{self, paging::PageFlags},
     mm::{phys, virt, PhysAddr, VirtAddr},
 };
 use core::arch::asm;
