@@ -1,5 +1,5 @@
 use crate::arch::x86_64::paging::{PML1Flags, PML2Flags, PML3Flags, PML4Flags, PageFlags};
-use crate::arch::x86_64::get_current_pml4;
+use crate::arch::x86_64::{get_current_pml4, set_cr3};
 use crate::mm::{PhysAddr, VirtAddr};
 use alloc::slice;
 use spin::{Mutex, RwLock};
@@ -20,9 +20,9 @@ pub const KERNEL_THREAD_STACKS_START: VirtAddr = VirtAddr::new(0xfffffe800000000
 // pml4[510]
 pub const KERNEL_HEAP_START: VirtAddr = VirtAddr::new(0xffffff0000000000);
 
-const HDDM_PML4_INDEX: u64 = 509;
-const KERNEL_THREAD_STACKS_PML4_INDEX: u64 = 510;
-const KERNEL_HEAP_INDEX: u64 = 510;
+const HDDM_PML4_INDEX: u64 = 508;
+const KERNEL_THREAD_STACKS_PML4_INDEX: u64 = 509;
+const KERNEL_HEAP_PML4_INDEX: u64 = 510;
 const KERNEL_PML4_INDEX: u64 = 511;
 
 pub const PAGE_ENTRIES: u64 = 512;
@@ -55,6 +55,7 @@ impl VirtualMemoryManager {
         phys: PhysAddr,
         flags: PageFlags,
         page_2mb: bool,
+        allow_already_mapped: bool,
     ) {
         assert!(self.initialized);
         assert!(virt.get() % 4096 == 0);
@@ -75,7 +76,13 @@ impl VirtualMemoryManager {
             );
 
             let page = self.get_pml2(pml2_table_phys, pml2_index);
-            assert!(page.is_some(), "Trying to map already mapped page!");
+            if page.is_some() {
+                if allow_already_mapped {
+                    return;
+                } else {
+                    panic!("Trying to map already mapped page!");
+                }
+            }
 
             self.map_pml2(pml2_table_phys, pml2_index, phys, pml2_flags);
         } else {
@@ -84,7 +91,13 @@ impl VirtualMemoryManager {
 
             let (pml1_flags, pml1_index) = (flags.to_plm1_flags(), virt.pml1_index());
             let page = self.get_pml1(pml1_table_phys, pml1_index);
-            assert!(page.is_none(), "Trying to map already mapped page!");
+            if page.is_some() {
+                if allow_already_mapped {
+                    return;
+                } else {
+                    panic!("Trying to map already mapped page!");
+                }
+            }
 
             self.map_pml1(pml1_table_phys, pml1_index, phys, pml1_flags);
         }
@@ -128,27 +141,6 @@ impl VirtualMemoryManager {
         if cfg!(vmm_debug) {
             println!("VMM: unmapped Virt {}", virt);
         }
-    }
-
-    fn get_recursive_addr(
-        pml4_index: u64,
-        pml3_index: u64,
-        pml2_index: u64,
-        pml1_index: u64,
-        index: u64,
-    ) -> u64 {
-        assert!(pml4_index < PAGE_ENTRIES);
-        assert!(pml3_index < PAGE_ENTRIES);
-        assert!(pml2_index < PAGE_ENTRIES);
-        assert!(pml1_index < PAGE_ENTRIES);
-        assert!(index < 4096);
-
-        (0xffff << 48)
-            | (pml4_index << 39)
-            | (pml3_index << 30)
-            | (pml2_index << 21)
-            | (pml1_index << 12)
-            | (index * 8)
     }
 
     fn get_phys_from_virt(&self, pml4_phys: PhysAddr, virt: VirtAddr) -> PhysAddr {
@@ -219,27 +211,26 @@ pub fn init(hhdm: u64) {
 }
 
 /// Maps a 4KiB page in memory
-#[no_mangle]
-pub fn map_4kib(virt: VirtAddr, phys: PhysAddr, flags: PageFlags) {
+pub fn map_4kib(virt: VirtAddr, phys: PhysAddr, flags: PageFlags, allow_already_mapped: bool) {
     let vmm = VIRTUAL_MEMORY_MANAGER.lock();
     let pml4 = get_current_pml4();
-    vmm.map(pml4, virt, phys, flags, false);
+    vmm.map(pml4, virt, phys, flags, false, allow_already_mapped);
 }
 
 /// Maps a 2MiB page in memory
-pub fn map_2mib(virt: VirtAddr, phys: PhysAddr, flags: PageFlags) {
+pub fn map_2mib(virt: VirtAddr, phys: PhysAddr, flags: PageFlags, allow_already_mapped: bool) {
     let vmm = VIRTUAL_MEMORY_MANAGER.lock();
-    vmm.map(get_current_pml4(), virt, phys, flags, true);
+    vmm.map(get_current_pml4(), virt, phys, flags, true, allow_already_mapped);
 }
 
-pub fn map_2mib_other(pml4: PhysAddr, virt: VirtAddr, phys: PhysAddr, flags: PageFlags) {
+pub fn map_2mib_other(pml4: PhysAddr, virt: VirtAddr, phys: PhysAddr, flags: PageFlags, allow_already_mapped: bool) {
     let vmm = VIRTUAL_MEMORY_MANAGER.lock();
-    vmm.map(pml4, virt, phys, flags, true);
+    vmm.map(pml4, virt, phys, flags, true, allow_already_mapped);
 }
 
-pub fn map_4kib_other(pml4: PhysAddr, virt: VirtAddr, phys: PhysAddr, flags: PageFlags) {
+pub fn map_4kib_other(pml4: PhysAddr, virt: VirtAddr, phys: PhysAddr, flags: PageFlags, allow_already_mapped: bool) {
     let vmm = VIRTUAL_MEMORY_MANAGER.lock();
-    vmm.map(pml4, virt, phys, flags, false);
+    vmm.map(pml4, virt, phys, flags, false, allow_already_mapped);
 }
 
 pub fn unmap(virt: VirtAddr) {
@@ -288,6 +279,10 @@ pub fn dump_pml4(pml4_phys: PhysAddr) {
     }
 }
 
+pub fn switch_pml4(pml4: PhysAddr) {
+    unsafe { set_cr3(pml4.get()) };
+}
+
 pub fn copy_pml4_higher_half_entries(to: PhysAddr, from: PhysAddr) {
     let vmm = VIRTUAL_MEMORY_MANAGER.lock();
 
@@ -305,8 +300,8 @@ pub fn copy_pml4_higher_half_entries(to: PhysAddr, from: PhysAddr) {
         ent.0.get() | ent.1.bits()
     };
 
-    pml4[KERNEL_PML4_INDEX as usize] = {
-        let ent = vmm.get_pml4(from, KERNEL_PML4_INDEX).unwrap();
+    pml4[KERNEL_HEAP_PML4_INDEX as usize] = {
+        let ent = vmm.get_pml4(from, KERNEL_HEAP_PML4_INDEX).unwrap();
         ent.0.get() | ent.1.bits()
     };
 

@@ -149,7 +149,7 @@ impl KernelAllocatorInner {
         for i in 0..pages {
             let virt = KERNEL_HEAP_START + VirtAddr(i as u64 * 4096);
             let phys = phys::alloc();
-            virt::map_4kib(virt, phys, PageFlags::READ_WRITE | PageFlags::PRESENT);
+            virt::map_4kib(virt, phys, PageFlags::READ_WRITE | PageFlags::PRESENT, false);
         }
 
         let head = KernelAllocatorInner::head();

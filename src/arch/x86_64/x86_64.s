@@ -16,8 +16,7 @@ x86_64_get_rflags:
 
 global x86_64_set_cr3:function (x86_64_set_cr3.end - x86_64_set_cr3)
 x86_64_set_cr3:
-    mov rax, [rsp + 4]
-    mov cr3, rax
+    mov cr3, rdi
     ret
 .end:
 
