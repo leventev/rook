@@ -1,10 +1,19 @@
-use alloc::{boxed::Box, vec::Vec};
-use elf::{abi::PT_LOAD, endian::LittleEndian, ElfBytes};
+use alloc::{boxed::Box, slice, vec::Vec};
+use elf::{
+    abi::{PF_W, PT_LOAD},
+    endian::LittleEndian,
+    ElfBytes,
+};
 use spin::Mutex;
 
 use crate::{
+    arch::x86_64::{get_current_pml4, paging::PageFlags},
     fs,
-    mm::{phys, virt, PhysAddr}, arch::x86_64::get_current_pml4,
+    mm::{
+        phys,
+        virt::{self, map_4kib_other, PAGE_SIZE_4KIB},
+        PhysAddr, VirtAddr,
+    }, utils,
 };
 
 use super::Thread;
@@ -46,7 +55,7 @@ fn get_new_pid() -> usize {
     pid
 }
 
-pub fn load_process(_proc: &mut Process, exec_path: &str) -> bool {
+pub fn load_process(proc: &mut Process, exec_path: &str) -> bool {
     let mut fd = fs::open(exec_path).unwrap();
     let info = fd.file_info().unwrap();
     println!("{} {}", info.size, info.blocks_used);
@@ -72,8 +81,31 @@ pub fn load_process(_proc: &mut Process, exec_path: &str) -> bool {
     .iter()
     .filter(|seg| seg.p_type == PT_LOAD);
 
+    // TODO: check if the segments are in userspace
     for ph in segments {
+        let pages = utils::div_and_ceil(ph.p_filesz as usize, PAGE_SIZE_4KIB as usize);
+        let seg_start = VirtAddr::new(ph.p_vaddr);
+        for i in 0..pages {
+            let phys = phys::alloc();
+            let virt = VirtAddr::new(seg_start.get() + i as u64 * PAGE_SIZE_4KIB);
+
+            let mut flags = PageFlags::PRESENT | PageFlags::READ_WRITE | PageFlags::USER;
+            if ph.p_flags & PF_W > 0 {
+                flags |= PageFlags::READ_WRITE;
+            }
+
+            map_4kib_other(proc.pml4_phys, virt, phys, flags);
+        }
+
+        let file_seg_start = ph.p_offset as usize;
+        let file_seg_end = (ph.p_offset + ph.p_filesz) as usize;
+
+        let seg_mem =
+            unsafe { slice::from_raw_parts_mut(seg_start.get() as *mut u8, ph.p_filesz as usize) };
+        seg_mem.copy_from_slice(&buff[file_seg_start..file_seg_end]);
+
         println!("{:?}", ph);
+        println!("{:#x}", ph.p_vaddr);
     }
 
     true

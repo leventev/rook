@@ -27,61 +27,53 @@ mod time;
 mod utils;
 
 use alloc::string::String;
-use limine::{
-    LimineBootInfoRequest, LimineBootTimeRequest, LimineHhdmRequest, LimineMemmapRequest,
-};
+use limine::{LimineBootTimeRequest, LimineHhdmRequest, LimineMemmapRequest};
 
 use crate::{
     arch::x86_64::{idt, pic, stacktrace},
+    drivers::serial,
     scheduler::proc,
 };
 
-static BOOTLOADER_INFO: LimineBootInfoRequest = LimineBootInfoRequest::new(0);
 static MMAP_INFO: LimineMemmapRequest = LimineMemmapRequest::new(0);
 static HHDM_INFO: LimineHhdmRequest = LimineHhdmRequest::new(0);
 static BOOT_TIME_INFO: LimineBootTimeRequest = LimineBootTimeRequest::new(0);
 
-/// Kernel Entry Point
-///
-/// `_start` is defined in the linker script as the entry point for the ELF file.
-/// Unless the [`Entry Point`](limine::LimineEntryPointRequest) feature is requested,
-/// the bootloader will transfer control to this function.
 #[no_mangle]
-pub extern "C" fn _start() -> ! {
-    println!("hello, world Rook!");
-
-    if let Some(bootinfo) = BOOTLOADER_INFO.get_response().get() {
-        println!(
-            "booted by {} v{}",
-            bootinfo.name.to_str().unwrap().to_str().unwrap(),
-            bootinfo.version.to_str().unwrap().to_str().unwrap(),
-        );
-    }
-
+fn vmm_setup() {
     let hhdm = HHDM_INFO
         .get_response()
         .get()
         .expect("HHDM request failed")
         .offset;
 
-    mm::virt::init(hhdm);
-
     let mmap = MMAP_INFO
         .get_response()
         .get()
         .expect("Memory map request failed");
 
+    mm::virt::init(hhdm);
     mm::phys::init(mmap);
+
+    // this function sets the rsp
     mm::virt::map_physical_address_space();
+}
 
-    idt::init();
-    pic::init();
-
+#[no_mangle]
+fn kernel_init() -> ! {
     let boot_time = BOOT_TIME_INFO
         .get_response()
         .get()
         .expect("BOOT TIME request failed")
         .boot_time;
+
+    // only unmap it after every we executed every request
+    mm::virt::unmap_limine_pages();
+
+    serial::init();
+
+    idt::init();
+    pic::init();
 
     time::init(boot_time as u64);
 

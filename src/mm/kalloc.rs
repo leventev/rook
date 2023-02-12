@@ -3,10 +3,12 @@ use spin::Mutex;
 
 use crate::{arch::x86_64::paging::PageFlags, utils};
 
-use super::{phys, virt, VirtAddr};
+use super::{
+    phys,
+    virt::{self, KERNEL_HEAP_START},
+    VirtAddr,
+};
 
-/// pml4[509]
-const KERNEL_HEAP_START: VirtAddr = VirtAddr::new(0xfffffe8000000000);
 const KERNEL_HEAP_BASE_SIZE: usize = 128 * 1024; // 128 KiB
 const MINIMUM_REGION_SIZE: usize = 8;
 
@@ -147,7 +149,7 @@ impl KernelAllocatorInner {
         for i in 0..pages {
             let virt = KERNEL_HEAP_START + VirtAddr(i as u64 * 4096);
             let phys = phys::alloc();
-            virt::map_4kib(virt, phys, PageFlags::READ_WRITE);
+            virt::map_4kib(virt, phys, PageFlags::READ_WRITE | PageFlags::PRESENT);
         }
 
         let head = KernelAllocatorInner::head();

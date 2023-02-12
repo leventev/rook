@@ -2,7 +2,11 @@ pub mod proc;
 
 use crate::{
     arch::x86_64::{self, paging::PageFlags},
-    mm::{phys, virt, PhysAddr, VirtAddr},
+    mm::{
+        phys,
+        virt::{self, KERNEL_THREAD_STACKS_START},
+        PhysAddr, VirtAddr,
+    },
 };
 use core::arch::asm;
 
@@ -14,8 +18,6 @@ use spin::Mutex;
 // kernel thread IDs in the kernel are different from the PIDs of processes/threads
 // a thread may have both a kernel TID and a PID
 
-// pml4[508]
-const KERNEL_THREAD_STACKS_START: VirtAddr = VirtAddr::new(0xfffffe0000000000);
 const KERNEL_STACK_SIZE_PER_THREAD: u64 = 2 * 4096; // 8KiB
 
 const TICKS_PER_THREAD_SWITCH: usize = 20;
@@ -386,7 +388,7 @@ pub fn init() {
             let phys = phys_start + PhysAddr::new(j as u64 * 4096);
             let virt =
                 KERNEL_THREAD_STACKS_START + VirtAddr::new((i * ALLOC_AT_ONCE + j) as u64 * 4096);
-            virt::map_4kib(virt, phys, PageFlags::READ_WRITE);
+            virt::map_4kib(virt, phys, PageFlags::PRESENT | PageFlags::READ_WRITE);
         }
     }
 

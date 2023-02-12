@@ -2,28 +2,35 @@ use crate::arch::x86_64::paging::{PML1Flags, PML2Flags, PML3Flags, PML4Flags, Pa
 use crate::arch::x86_64::get_current_pml4;
 use crate::mm::{PhysAddr, VirtAddr};
 use alloc::slice;
-use spin::Mutex;
-
-use super::phys;
+use spin::{Mutex, RwLock};
 
 mod utils;
 
-/// pml4[507] - physical memory(512GiB)
-/// pml4[508] - kernel thread stacks
-/// pml4[509] - kernel heap
-/// pml4[510] - recrusive
+/// pml4[508] - physical memory(512GiB)
+/// pml4[509] - kernel thread stacks
+/// pml4[510] - kernel heap
 /// pml4[511] - kernel
-const VIRT_MANAGER_PML4_INDEX: u64 = 509;
-const RECURSIVE_PML4_INDEX: u64 = 510;
-const PAGE_KERNEL_PML4_INDEX: u64 = 511;
+
+// pml[508]
+pub const HDDM_VIRT_START: VirtAddr = VirtAddr::new(0xfffffe0000000000);
+
+// pml4[509]
+pub const KERNEL_THREAD_STACKS_START: VirtAddr = VirtAddr::new(0xfffffe8000000000);
+
+// pml4[510]
+pub const KERNEL_HEAP_START: VirtAddr = VirtAddr::new(0xffffff0000000000);
+
+const HDDM_PML4_INDEX: u64 = 509;
+const KERNEL_THREAD_STACKS_PML4_INDEX: u64 = 510;
+const KERNEL_HEAP_INDEX: u64 = 510;
+const KERNEL_PML4_INDEX: u64 = 511;
 
 pub const PAGE_ENTRIES: u64 = 512;
 
 pub const PAGE_SIZE_4KIB: u64 = 4096;
 pub const PAGE_SIZE_2MIB: u64 = PAGE_SIZE_4KIB * 512;
 
-// pml[507]
-pub const PHYSICAL_ADDRESS_SPACE_VIRT_ADDR: VirtAddr = VirtAddr::new(0xfffffd8000000000);
+pub static HHDM_START: RwLock<VirtAddr> = RwLock::new(VirtAddr::zero());
 
 // TODO: support other arches, and abstract all virtual memory operations
 struct VirtualMemoryManager {
@@ -33,16 +40,8 @@ struct VirtualMemoryManager {
 impl VirtualMemoryManager {
     // Initializes the virtual memory manager
     pub fn init(&mut self, hhdm: VirtAddr) {
-        let pml4_phys = get_current_pml4();
-        let pml4_virt = hhdm + VirtAddr::new(pml4_phys.get());
-
-        // cant use map_mpl4 here because the recursive mappings havent been
-        // estabilished yet
-        let pml4 = unsafe {
-            core::slice::from_raw_parts_mut(pml4_virt.0 as *mut u64, PAGE_ENTRIES as usize)
-        };
-        pml4[RECURSIVE_PML4_INDEX as usize] =
-            pml4_phys.get() | (PML1Flags::READ_WRITE | PML1Flags::PRESENT).bits();
+        let mut hhdm_start = HHDM_START.write();
+        *hhdm_start = hhdm;
 
         self.initialized = true;
     }
@@ -91,7 +90,10 @@ impl VirtualMemoryManager {
         }
 
         if cfg!(vmm_debug) {
-            println!("VMM: mapped Virt {} -> Phys {}", virt, phys);
+            println!(
+                "VMM: mapped Virt {} -> Phys {} with flags {:?}",
+                virt, phys, flags
+            );
         }
     }
 
@@ -168,57 +170,37 @@ impl VirtualMemoryManager {
     fn map_physical_address_space(&self) {
         const PAGES_TO_MAP: u64 = PAGE_ENTRIES * PAGE_ENTRIES;
 
-        let pml4_index = PHYSICAL_ADDRESS_SPACE_VIRT_ADDR.pml4_index();
-
-        let pml4_addr = Self::get_recursive_addr(
-            RECURSIVE_PML4_INDEX,
-            RECURSIVE_PML4_INDEX,
-            RECURSIVE_PML4_INDEX,
-            RECURSIVE_PML4_INDEX,
+        let pml4_index = HDDM_VIRT_START.pml4_index();
+        let pml4 = self.get_or_map_pml4(
+            get_current_pml4(),
             pml4_index,
-        ) as *mut u64;
-
-        unsafe {
-            pml4_addr
-                .write(phys::alloc().get() | (PML4Flags::READ_WRITE | PML4Flags::PRESENT).bits())
-        };
+            PML4Flags::READ_WRITE | PML4Flags::PRESENT,
+        );
 
         for pml3_index in 0..PAGE_ENTRIES {
-            let pml3_addr = Self::get_recursive_addr(
-                RECURSIVE_PML4_INDEX,
-                RECURSIVE_PML4_INDEX,
-                RECURSIVE_PML4_INDEX,
-                pml4_index,
-                pml3_index,
-            ) as *mut u64;
-
-            unsafe {
-                pml3_addr.write(
-                    phys::alloc().get() | (PML3Flags::READ_WRITE | PML3Flags::PRESENT).bits(),
-                )
-            };
+            let pml3 =
+                self.get_or_map_pml3(pml4, pml3_index, PML3Flags::READ_WRITE | PML3Flags::PRESENT);
 
             for pml2_index in 0..PAGE_ENTRIES {
                 let phys_addr =
                     PhysAddr::new((pml3_index * PAGE_ENTRIES + pml2_index) * PAGE_SIZE_2MIB);
 
-                let pml3_addr = Self::get_recursive_addr(
-                    RECURSIVE_PML4_INDEX,
-                    RECURSIVE_PML4_INDEX,
-                    pml4_index,
-                    pml3_index,
+                self.map_pml2(
+                    pml3,
                     pml2_index,
-                ) as *mut u64;
-
-                unsafe {
-                    pml3_addr.write(
-                        phys_addr.get()
-                            | (PML2Flags::READ_WRITE | PML2Flags::PRESENT | PML2Flags::PAGE_SIZE)
-                                .bits(),
-                    )
-                };
+                    phys_addr,
+                    PML2Flags::READ_WRITE | PML2Flags::PRESENT | PML2Flags::PAGE_SIZE,
+                );
             }
         }
+
+        let mut hddm_start = HHDM_START.write();
+        let hddm_stack_diff = (HDDM_VIRT_START - *hddm_start).get();
+        unsafe {
+            hddm_adjust_offset = hddm_stack_diff;
+        }
+
+        *hddm_start = HDDM_VIRT_START;
     }
 }
 
@@ -228,6 +210,7 @@ static VIRTUAL_MEMORY_MANAGER: Mutex<VirtualMemoryManager> =
 extern "C" {
     static __kernel_start: u64;
     static __kernel_end: u64;
+    static mut hddm_adjust_offset: u64;
 }
 
 pub fn init(hhdm: u64) {
@@ -236,15 +219,11 @@ pub fn init(hhdm: u64) {
 }
 
 /// Maps a 4KiB page in memory
+#[no_mangle]
 pub fn map_4kib(virt: VirtAddr, phys: PhysAddr, flags: PageFlags) {
     let vmm = VIRTUAL_MEMORY_MANAGER.lock();
-    vmm.map(
-        get_current_pml4(),
-        virt,
-        phys,
-        flags | PageFlags::PRESENT,
-        false,
-    );
+    let pml4 = get_current_pml4();
+    vmm.map(pml4, virt, phys, flags, false);
 }
 
 /// Maps a 2MiB page in memory
@@ -260,7 +239,7 @@ pub fn map_2mib_other(pml4: PhysAddr, virt: VirtAddr, phys: PhysAddr, flags: Pag
 
 pub fn map_4kib_other(pml4: PhysAddr, virt: VirtAddr, phys: PhysAddr, flags: PageFlags) {
     let vmm = VIRTUAL_MEMORY_MANAGER.lock();
-    vmm.map(pml4, virt, phys, flags | PageFlags::PRESENT, false);
+    vmm.map(pml4, virt, phys, flags, false);
 }
 
 pub fn unmap(virt: VirtAddr) {
@@ -289,35 +268,50 @@ pub fn map_physical_address_space() {
     vmm.map_physical_address_space();
 }
 
+pub fn unmap_limine_pages() {
+    let vmm = VIRTUAL_MEMORY_MANAGER.lock();
+    let pml4 = get_current_pml4();
+    vmm.map_pml4(pml4, 0, PhysAddr::zero(), PML4Flags::NONE);
+    vmm.map_pml4(pml4, 1, PhysAddr::zero(), PML4Flags::NONE);
+    vmm.map_pml4(pml4, 256, PhysAddr::zero(), PML4Flags::NONE);
+    vmm.map_pml4(pml4, 257, PhysAddr::zero(), PML4Flags::NONE);
+}
+
+pub fn dump_pml4(pml4_phys: PhysAddr) {
+    let pml4 = pml4_phys.virt_addr().get() as *mut u64;
+    for i in 0..PAGE_ENTRIES {
+        let ent = unsafe { pml4.offset(i as isize).read() };
+        if ent == 0 {
+            continue;
+        }
+        println!("{}: {:#x}", i, ent);
+    }
+}
+
 pub fn copy_pml4_higher_half_entries(to: PhysAddr, from: PhysAddr) {
     let vmm = VIRTUAL_MEMORY_MANAGER.lock();
 
-    let pml4 = unsafe { slice::from_raw_parts_mut(to.get() as *mut u64, PAGE_ENTRIES as usize) };
+    let pml4 = unsafe {
+        slice::from_raw_parts_mut(to.virt_addr().get() as *mut u64, PAGE_ENTRIES as usize)
+    };
 
-    // indexes explained above
-    // TODO: use constants
-    pml4[507] = {
-        let ent = vmm.get_pml4(from, 507).unwrap();
+    pml4[HDDM_PML4_INDEX as usize] = {
+        let ent = vmm.get_pml4(from, HDDM_PML4_INDEX).unwrap();
         ent.0.get() | ent.1.bits()
     };
 
-    pml4[508] = {
-        let ent = vmm.get_pml4(from, 508).unwrap();
+    pml4[KERNEL_THREAD_STACKS_PML4_INDEX as usize] = {
+        let ent = vmm.get_pml4(from, KERNEL_THREAD_STACKS_PML4_INDEX).unwrap();
         ent.0.get() | ent.1.bits()
     };
 
-    pml4[509] = {
-        let ent = vmm.get_pml4(from, 509).unwrap();
+    pml4[KERNEL_PML4_INDEX as usize] = {
+        let ent = vmm.get_pml4(from, KERNEL_PML4_INDEX).unwrap();
         ent.0.get() | ent.1.bits()
     };
 
-    pml4[510] = {
-        let ent = vmm.get_pml4(from, 510).unwrap();
-        ent.0.get() | ent.1.bits()
-    };
-
-    pml4[511] = {
-        let ent = vmm.get_pml4(from, 511).unwrap();
+    pml4[KERNEL_PML4_INDEX as usize] = {
+        let ent = vmm.get_pml4(from, KERNEL_PML4_INDEX).unwrap();
         ent.0.get() | ent.1.bits()
     };
 }

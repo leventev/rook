@@ -4,8 +4,10 @@ pub mod virt;
 
 use core::{fmt, ops};
 
+use self::virt::HHDM_START;
+
 #[repr(transparent)]
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct VirtAddr(u64);
 
 impl VirtAddr {
@@ -68,7 +70,7 @@ impl fmt::Display for VirtAddr {
 }
 
 #[repr(transparent)]
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PhysAddr(u64);
 
 impl PhysAddr {
@@ -85,7 +87,10 @@ impl PhysAddr {
     }
 
     pub fn virt_addr(&self) -> VirtAddr {
-        VirtAddr::new(virt::PHYSICAL_ADDRESS_SPACE_VIRT_ADDR.get() + self.0)
+        let hhdm_start = *HHDM_START.read();
+
+        assert_ne!(hhdm_start, VirtAddr::zero());
+        VirtAddr::new(hhdm_start.get() + self.0)
     }
 }
 

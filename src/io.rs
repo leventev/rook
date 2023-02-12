@@ -1,39 +1,17 @@
 use core::fmt;
-use limine::LimineTerminalRequest;
 use spin::Mutex;
 
 use crate::{arch::x86_64, drivers};
 
-static TERMINAL_REQUEST: LimineTerminalRequest = LimineTerminalRequest::new(0);
-
-struct Writer {
-    terminals: Option<&'static limine::LimineTerminalResponse>,
-}
+struct Writer {}
 
 unsafe impl Send for Writer {}
 
 impl fmt::Write for Writer {
     fn write_str(&mut self, s: &str) -> fmt::Result {
-        if cfg!(serial_module) && drivers::is_loaded("serial") {
+        if cfg!(serial_module) /*&& drivers::is_loaded("serial")*/ {
             for c in s.bytes() {
                 drivers::serial::write(c);
-            }
-        } else {
-            // Get the Terminal response and cache it.
-            let response = match self.terminals {
-                None => {
-                    let response = TERMINAL_REQUEST.get_response().get().ok_or(fmt::Error)?;
-                    self.terminals = Some(response);
-                    response
-                }
-                Some(resp) => resp,
-            };
-
-            let write = response.write().ok_or(fmt::Error)?;
-
-            // Output the string onto each terminal.
-            for terminal in response.terminals() {
-                write(terminal, s);
             }
         }
 
@@ -41,7 +19,7 @@ impl fmt::Write for Writer {
     }
 }
 
-static WRITER: Mutex<Writer> = Mutex::new(Writer { terminals: None });
+static WRITER: Mutex<Writer> = Mutex::new(Writer {});
 
 pub fn _print(args: fmt::Arguments) {
     // NOTE: Locking needs to happen around `print_fmt`, not `print_str`, as the former
