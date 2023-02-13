@@ -526,6 +526,9 @@ impl FileSystemInner for FATFileSystem {
             size_left -= read;
             buff_left -= read;
             start_off = 0;
+
+            cluster = self.get_fat_entry(cluster);
+            assert!(Self::valid_cluster(cluster));
         }
 
         Ok(total_read)
