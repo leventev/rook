@@ -27,18 +27,10 @@ mod scheduler;
 mod time;
 mod utils;
 
-use alloc::{
-    boxed::Box,
-    slice,
-    string::String,
-    vec::{self, Vec},
-};
-use elf::file;
-use embedded_graphics::{pixelcolor::Rgb888, prelude::*};
+use alloc::{slice, string::String};
 use limine::{
     LimineBootTimeRequest, LimineFramebufferRequest, LimineHhdmRequest, LimineMemmapRequest,
 };
-use tinybmp::Bmp;
 
 use crate::{
     arch::x86_64::{idt, pic, stacktrace},
@@ -126,6 +118,9 @@ fn kernel_init() -> ! {
     drivers::init();
 
     fs::init();
+
+    let part = blk::get_partition(1, 0, 0).unwrap();
+    fs::mount(String::from("/"), part, "FAT").unwrap();
 
     scheduler::init();
     scheduler::spawn_kernel_thread(main_init_thread);

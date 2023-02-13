@@ -498,6 +498,8 @@ impl FileSystemInner for FATFileSystem {
         };
 
         while size_left > 0 && buff_left > 0 {
+            assert!(Self::valid_cluster(cluster));
+
             let read = (if start_off > 0 {
                 BLOCK_LBA_SIZE - start_off
             } else {
@@ -528,7 +530,6 @@ impl FileSystemInner for FATFileSystem {
             start_off = 0;
 
             cluster = self.get_fat_entry(cluster);
-            assert!(Self::valid_cluster(cluster));
         }
 
         Ok(total_read)
