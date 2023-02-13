@@ -388,7 +388,12 @@ pub fn init() {
             let phys = phys_start + PhysAddr::new(j as u64 * 4096);
             let virt =
                 KERNEL_THREAD_STACKS_START + VirtAddr::new((i * ALLOC_AT_ONCE + j) as u64 * 4096);
-            virt::map_4kib(virt, phys, PageFlags::PRESENT | PageFlags::READ_WRITE, false);
+            virt::map_4kib(
+                virt,
+                phys,
+                PageFlags::PRESENT | PageFlags::READ_WRITE,
+                false,
+            );
         }
     }
 

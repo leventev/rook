@@ -345,6 +345,4 @@ pub fn register_fs_skeleton(skel: FileSystemSkeleton) -> Result<(), FileSystemEr
     vfs.register_fs_skeleton(skel)
 }
 
-pub fn init() {
-    println!("vfs initialized");
-}
+pub fn init() {}

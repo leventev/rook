@@ -220,15 +220,34 @@ pub fn map_4kib(virt: VirtAddr, phys: PhysAddr, flags: PageFlags, allow_already_
 /// Maps a 2MiB page in memory
 pub fn map_2mib(virt: VirtAddr, phys: PhysAddr, flags: PageFlags, allow_already_mapped: bool) {
     let vmm = VIRTUAL_MEMORY_MANAGER.lock();
-    vmm.map(get_current_pml4(), virt, phys, flags, true, allow_already_mapped);
+    vmm.map(
+        get_current_pml4(),
+        virt,
+        phys,
+        flags,
+        true,
+        allow_already_mapped,
+    );
 }
 
-pub fn map_2mib_other(pml4: PhysAddr, virt: VirtAddr, phys: PhysAddr, flags: PageFlags, allow_already_mapped: bool) {
+pub fn map_2mib_other(
+    pml4: PhysAddr,
+    virt: VirtAddr,
+    phys: PhysAddr,
+    flags: PageFlags,
+    allow_already_mapped: bool,
+) {
     let vmm = VIRTUAL_MEMORY_MANAGER.lock();
     vmm.map(pml4, virt, phys, flags, true, allow_already_mapped);
 }
 
-pub fn map_4kib_other(pml4: PhysAddr, virt: VirtAddr, phys: PhysAddr, flags: PageFlags, allow_already_mapped: bool) {
+pub fn map_4kib_other(
+    pml4: PhysAddr,
+    virt: VirtAddr,
+    phys: PhysAddr,
+    flags: PageFlags,
+    allow_already_mapped: bool,
+) {
     let vmm = VIRTUAL_MEMORY_MANAGER.lock();
     vmm.map(pml4, virt, phys, flags, false, allow_already_mapped);
 }

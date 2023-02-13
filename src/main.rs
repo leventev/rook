@@ -19,6 +19,7 @@ mod arch;
 mod blk;
 mod dma;
 mod drivers;
+mod framebuffer;
 mod fs;
 mod mm;
 mod pci;
@@ -26,18 +27,30 @@ mod scheduler;
 mod time;
 mod utils;
 
-use alloc::string::String;
-use limine::{LimineBootTimeRequest, LimineHhdmRequest, LimineMemmapRequest};
+use alloc::{
+    boxed::Box,
+    slice,
+    string::String,
+    vec::{self, Vec},
+};
+use elf::file;
+use embedded_graphics::{pixelcolor::Rgb888, prelude::*};
+use limine::{
+    LimineBootTimeRequest, LimineFramebufferRequest, LimineHhdmRequest, LimineMemmapRequest,
+};
+use tinybmp::Bmp;
 
 use crate::{
     arch::x86_64::{idt, pic, stacktrace},
     drivers::serial,
+    mm::{virt::HDDM_VIRT_START, VirtAddr},
     scheduler::proc,
 };
 
 static MMAP_INFO: LimineMemmapRequest = LimineMemmapRequest::new(0);
 static HHDM_INFO: LimineHhdmRequest = LimineHhdmRequest::new(0);
 static BOOT_TIME_INFO: LimineBootTimeRequest = LimineBootTimeRequest::new(0);
+static FRAMEBUFFER_INFO: LimineFramebufferRequest = LimineFramebufferRequest::new(0);
 
 #[no_mangle]
 fn vmm_setup() {
@@ -51,6 +64,36 @@ fn vmm_setup() {
         .get_response()
         .get()
         .expect("Memory map request failed");
+
+    let framebuffer = FRAMEBUFFER_INFO
+        .get_response()
+        .get()
+        .expect("Framebuffer request failed");
+
+    println!("{} framebuffers available", framebuffer.framebuffer_count);
+    assert!(framebuffer.framebuffer_count > 0);
+    let framebuffers = unsafe {
+        slice::from_raw_parts_mut(
+            framebuffer.framebuffers.as_ptr(),
+            framebuffer.framebuffer_count as usize,
+        )
+    };
+
+    let fb = &mut framebuffers[0];
+
+    // FIXME
+    // FIXME
+    // FIXME
+    // FIXME
+    let buff_phys = (fb.address.as_ptr().unwrap() as u64) - hhdm;
+
+    framebuffer::init(
+        VirtAddr::new(HDDM_VIRT_START.get() + buff_phys),
+        fb.width as usize,
+        fb.height as usize,
+        fb.pitch as usize,
+        fb.bpp as usize,
+    );
 
     mm::virt::init(hhdm);
     mm::phys::init(mmap);
@@ -83,9 +126,6 @@ fn kernel_init() -> ! {
     drivers::init();
 
     fs::init();
-
-    let part = blk::get_partition(1, 0, 0).unwrap();
-    fs::mount(String::from("/"), part, "FAT").unwrap();
 
     scheduler::init();
     scheduler::spawn_kernel_thread(main_init_thread);
