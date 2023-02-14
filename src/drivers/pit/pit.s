@@ -41,6 +41,7 @@ __pit_timer_interrupt:
     push rdx
     push rcx
     push rbx
+
     mov rax, [rax_temp]
     push rax
 

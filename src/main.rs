@@ -34,7 +34,6 @@ use limine::{
 
 use crate::{
     arch::x86_64::{idt, pic, stacktrace},
-    drivers::serial,
     mm::{virt::HDDM_VIRT_START, VirtAddr},
     scheduler::proc,
 };
@@ -105,8 +104,6 @@ fn kernel_init() -> ! {
     // only unmap it after every we executed every request
     mm::virt::unmap_limine_pages();
 
-    serial::init();
-
     idt::init();
     pic::init();
 
@@ -114,8 +111,20 @@ fn kernel_init() -> ! {
 
     mm::kalloc::init();
 
-    pci::init();
+    scheduler::init();
+    scheduler::spawn_kernel_thread(main_init_thread);
+    scheduler::start();
+}
+
+fn main_init_thread() {
     drivers::init();
+
+    drivers::preload_driver("serial");
+    drivers::preload_driver("pit");
+
+    pci::init();
+
+    drivers::load_drivers();
 
     fs::init();
 
@@ -124,17 +133,11 @@ fn kernel_init() -> ! {
 
     // we have to initialize the font after kalloc has been initialized
     framebuffer::init_font();
-
     framebuffer::draw_text("test", 0, 0);
 
-    scheduler::init();
-    scheduler::spawn_kernel_thread(main_init_thread);
-    scheduler::start();
-}
-
-fn main_init_thread() {
     println!("main init thread");
     proc::load_base_process("/bin/test");
+
     loop {}
 }
 

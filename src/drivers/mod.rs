@@ -16,17 +16,44 @@ pub mod fat;
 
 // FIXME: dont include assembly files associated with disabled modules in the build
 
+#[derive(Debug)]
+pub enum KernelModuleLoadStatus {
+    NotLoaded,
+    Loaded,
+    LoadFailed,
+}
+
 /// Kernel module
 #[derive(Debug)]
 struct KernelModule {
     /// Returns whether the function got initialized successfully
     init: fn() -> bool,
     name: &'static str,
+    load_state: KernelModuleLoadStatus,
 }
 
 impl KernelModule {
     fn new(init: fn() -> bool, name: &'static str) -> KernelModule {
-        KernelModule { init, name }
+        KernelModule {
+            init,
+            name,
+            load_state: KernelModuleLoadStatus::NotLoaded,
+        }
+    }
+
+    fn load(&mut self) {
+        let success = (self.init)();
+        if success {
+            self.load_state = KernelModuleLoadStatus::Loaded;
+            if cfg!(driver_manager_debug) {
+                println!("DRIVER MANAGER: loaded {} module", self.name);
+            }
+        } else {
+            self.load_state = KernelModuleLoadStatus::LoadFailed;
+            if cfg!(driver_manager_debug) {
+                println!("DRIVER MANAGER: failed to load {} module", self.name);
+            }
+        }
     }
 }
 
@@ -46,15 +73,26 @@ pub fn init() {
 
     #[cfg(fat_module)]
     modules.push(KernelModule::new(fat::init, "fat"));
+}
 
-    for module in modules.iter() {
-        let success = (module.init)();
-        if cfg!(driver_manager_debug) {
-            if success {
-                println!("DRIVER MANAGER: loaded {} module", module.name);
-            } else {
-                println!("DRIVER MANAGER: failed to load {} module", module.name);
-            }
+pub fn preload_driver(name: &str) {
+    let mut modules = KERNEL_MODULES.lock();
+    let pos = modules
+        .iter()
+        .position(|driver| driver.name == name)
+        .unwrap();
+
+    let module = &mut modules[pos];
+    module.load();
+}
+
+pub fn load_drivers() {
+    let mut modules = KERNEL_MODULES.lock();
+
+    for module in modules.iter_mut() {
+        match module.load_state {
+            KernelModuleLoadStatus::NotLoaded => module.load(),
+            _ => continue,
         }
     }
 }
