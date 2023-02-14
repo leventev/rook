@@ -7,5 +7,6 @@ build = "build.rs"
 [dependencies]
 bitflags = "1.3.2"
 elf = { version = "0.7.1", default_features = false }
+encode_unicode = { version = "1.0.0", default_features = false }
 limine = "0.1.9"
 spin = "0.9.4"

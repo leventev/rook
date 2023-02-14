@@ -122,6 +122,11 @@ fn kernel_init() -> ! {
     let part = blk::get_partition(1, 0, 0).unwrap();
     fs::mount(String::from("/"), part, "FAT").unwrap();
 
+    // we have to initialize the font after kalloc has been initialized
+    framebuffer::init_font();
+
+    framebuffer::draw_text("test", 0, 0);
+
     scheduler::init();
     scheduler::spawn_kernel_thread(main_init_thread);
     scheduler::start();

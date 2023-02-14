@@ -1,7 +1,9 @@
-use alloc::slice;
+use alloc::{collections::BTreeMap, slice};
 use spin::Mutex;
 
 use crate::mm::VirtAddr;
+
+mod font;
 
 #[derive(Debug, PartialEq)]
 pub enum FramebufferMode {
@@ -10,13 +12,52 @@ pub enum FramebufferMode {
 }
 
 #[derive(Debug)]
+/// Framebuffer
 pub struct Framebuffer {
+    /// Virtual address of the video memory
     buffer: VirtAddr,
+
+    /// Current mode of the framebuffer
     mode: FramebufferMode,
+
+    /// Width of the framebuffer in pixels
     width: usize,
+
+    /// Height of the framebuffer in pixels
     height: usize,
+
+    /// Number of bits per pixel(usually 32)
     bits_per_pixel: usize,
+
+    /// Number of bytes per row
     pitch: usize,
+
+    /// Number of columns that fit in the framebuffer
+    text_columns: usize,
+
+    /// Number of rows that fit in the framebuffer
+    text_rows: usize,
+
+    /// Width of the font in bits
+    font_width: usize,
+
+    /// Height of the font in bits
+    font_height: usize,
+
+    /// Number of glyphs available
+    font_glyph_count: usize,
+
+    /// Glyph size in bytes
+    font_glyph_size: usize,
+
+    /// Offset of the start of the glyph table in the PC Screen Font data
+    font_glyph_table_start_offset: usize,
+
+    /// Bytes per pixel row, for example a font with 9 bit height has a 2 byte pixel row
+    font_pixel_row_size: usize,
+
+    /// Unicode code-point to glyph translation table
+    unicode_glyph_table: Option<BTreeMap<char, usize>>,
 }
 
 unsafe impl Send for Framebuffer {}
@@ -30,6 +71,15 @@ impl Framebuffer {
             height: 0,
             bits_per_pixel: 0,
             pitch: 0,
+            font_width: 0,
+            font_height: 0,
+            font_glyph_count: 0,
+            font_glyph_size: 0,
+            font_glyph_table_start_offset: 0,
+            font_pixel_row_size: 0,
+            text_columns: 0,
+            text_rows: 0,
+            unicode_glyph_table: None,
         }
     }
 
@@ -47,6 +97,67 @@ impl Framebuffer {
         buff[y_off + x_off + 2] = red;
         buff[y_off + x_off + 1] = green;
         buff[y_off + x_off + 0] = blue;
+    }
+
+    fn draw_glyph(&self, glyph_idx: usize, x: usize, y: usize) {
+        let bitmap = self.get_glyph_bitmap(glyph_idx);
+
+        let mut yy = y;
+
+        for row in 0..self.font_height {
+            let mut xx = x;
+            let row_offset = row * self.font_pixel_row_size;
+            let row_offset_end = row_offset + self.font_pixel_row_size;
+            let row = &bitmap[row_offset..row_offset_end];
+
+            for col_byte in 0..self.font_pixel_row_size {
+                let byte = row[col_byte];
+
+                let remaining_bits = self.font_height - col_byte * 8;
+                let cols = usize::min(8, remaining_bits);
+
+                for col in 0..cols {
+                    let mask = 1 << (7 - col);
+                    if byte & mask > 0 {
+                        self.draw_pixel(xx, yy, 255, 0, 0);
+                    }
+                    xx += 1;
+                }
+            }
+
+            yy += 1;
+        }
+    }
+
+    fn draw_character(&self, c: char, col: usize, row: usize) {
+        let x = col * self.font_width;
+        let y = row * self.font_height;
+        let glyph = match &self.unicode_glyph_table {
+            Some(table) => *table.get(&c).unwrap_or(&('?' as usize)),
+            None => {
+                let glyph = c as usize;
+                if glyph >= self.font_glyph_count {
+                    '?' as usize
+                } else {
+                    glyph
+                }
+            }
+        };
+        self.draw_glyph(glyph, x, y);
+    }
+
+    fn draw_text(&self, s: &str, col: usize, row: usize) {
+        // TODO: remove this
+        let mut c = col;
+        let mut r = row;
+        for ch in s.chars() {
+            self.draw_character(ch, c, r);
+            c += 1;
+            if c >= self.text_columns {
+                r += 1;
+                c = 0;
+            }
+        }
     }
 }
 
@@ -69,15 +180,19 @@ pub fn init(
     fb.bits_per_pixel = bits_per_pixel;
 }
 
-pub fn test() {
-    let fb = FRAMEBUFFER.lock();
-    for i in 0..fb.width {
-        fb.draw_pixel(i, 0, 255, 0, 0);
-    }
+pub fn init_font() {
+    let mut fb = FRAMEBUFFER.lock();
+    fb.init_font();
 }
 
 pub fn draw_pixel(x: usize, y: usize, red: u8, green: u8, blue: u8) {
     let fb = FRAMEBUFFER.lock();
     assert!(fb.mode == FramebufferMode::Graphics);
     fb.draw_pixel(x, y, red, green, blue);
+}
+
+pub fn draw_text(s: &str, col: usize, row: usize) {
+    let fb = FRAMEBUFFER.lock();
+    assert!(fb.mode == FramebufferMode::Graphics);
+    fb.draw_text(s, col, row);
 }
