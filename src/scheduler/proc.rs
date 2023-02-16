@@ -1,4 +1,15 @@
-use alloc::{boxed::Box, slice, vec::Vec};
+use crate::{
+    arch::x86_64::{get_current_pml4, paging::PageFlags},
+    fs,
+    mm::{
+        phys,
+        virt::{self, map_4kib, switch_pml4, PAGE_SIZE_4KIB},
+        PhysAddr, VirtAddr,
+    },
+    scheduler::{create_user_thread, run_user_thread},
+    utils,
+};
+use alloc::{boxed::Box, slice, sync::Weak, vec::Vec};
 use elf::{
     abi::{PF_W, PT_LOAD},
     endian::LittleEndian,
@@ -6,22 +17,11 @@ use elf::{
 };
 use spin::Mutex;
 
-use crate::{
-    arch::x86_64::{get_current_pml4, paging::PageFlags},
-    fs,
-    mm::{
-        phys,
-        virt::{self, map_4kib_other, switch_pml4, PAGE_SIZE_4KIB},
-        PhysAddr, VirtAddr,
-    },
-    utils,
-};
-
 use super::Thread;
 
 pub struct Process {
     pid: usize,
-    main_thread: Thread,
+    main_thread: Weak<Mutex<Thread>>,
     pml4_phys: PhysAddr,
 }
 
@@ -36,7 +36,7 @@ impl Process {
 
         Process {
             pid,
-            main_thread: Thread::new_kernel_thread(),
+            main_thread: create_user_thread(),
             pml4_phys: pml4,
         }
     }
@@ -57,6 +57,9 @@ fn get_new_pid() -> usize {
 }
 
 pub fn load_process(proc: &mut Process, exec_path: &str) -> bool {
+    let main_thread_lock = proc.main_thread.upgrade().unwrap();
+    let mut main_thread = main_thread_lock.lock();
+
     let mut fd = fs::open(exec_path).unwrap();
     let info = fd.file_info().unwrap();
     println!("{} {}", info.size, info.blocks_used);
@@ -82,6 +85,7 @@ pub fn load_process(proc: &mut Process, exec_path: &str) -> bool {
     .iter()
     .filter(|seg| seg.p_type == PT_LOAD);
 
+    switch_pml4(proc.pml4_phys);
     // TODO: check if the segments are in userspace
     for ph in segments {
         let pages = utils::div_and_ceil(ph.p_filesz as usize, PAGE_SIZE_4KIB as usize);
@@ -95,10 +99,8 @@ pub fn load_process(proc: &mut Process, exec_path: &str) -> bool {
                 flags |= PageFlags::READ_WRITE;
             }
 
-            map_4kib_other(proc.pml4_phys, virt, phys, flags, true);
+            map_4kib(virt, phys, flags, true);
         }
-
-        switch_pml4(proc.pml4_phys);
 
         let file_seg_start = ph.p_offset as usize;
         let file_seg_end = (ph.p_offset + ph.p_filesz) as usize;
@@ -111,6 +113,27 @@ pub fn load_process(proc: &mut Process, exec_path: &str) -> bool {
         println!("{:#x}", ph.p_vaddr);
     }
 
+    const STACK_BASE: u64 = 0xfffffd8000000000;
+    const STACK_SIZE: u64 = 4096 * 16; // 64 KiB
+    let pages = STACK_SIZE / 4096;
+    for i in 0..pages {
+        let virt = VirtAddr::new(STACK_BASE + i * 4096);
+        let phys = phys::alloc();
+        map_4kib(
+            virt,
+            phys,
+            PageFlags::READ_WRITE | PageFlags::USER | PageFlags::PRESENT,
+            false,
+        );
+    }
+
+    let stack_bottom = STACK_BASE + STACK_SIZE;
+
+    // TODO: validate
+    main_thread.regs.rip = elf_file.ehdr.e_entry;
+    main_thread.regs.rsp = stack_bottom;
+    run_user_thread(main_thread.id);
+
     true
 }
 
@@ -118,5 +141,7 @@ pub fn load_base_process(exec_path: &str) {
     let mut proc = Process::new();
     println!("PID {}", proc.pid);
 
-    load_process(&mut proc, exec_path);
+    if !load_process(&mut proc, exec_path) {
+        panic!("failed to load base process");
+    }
 }

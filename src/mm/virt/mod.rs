@@ -33,6 +33,7 @@ pub const PAGE_SIZE_2MIB: u64 = PAGE_SIZE_4KIB * 512;
 pub static HHDM_START: RwLock<VirtAddr> = RwLock::new(VirtAddr::zero());
 
 // TODO: support other arches, and abstract all virtual memory operations
+// TODO: remove locking every time
 struct VirtualMemoryManager {
     initialized: bool,
 }

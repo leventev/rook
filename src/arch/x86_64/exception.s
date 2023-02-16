@@ -4,6 +4,7 @@ bits 64
 extern excp_ %+ %1
 global __excp_ %+ %1:function (%%end - __excp_ %+ %1)
 __excp_ %+ %1:
+    cli
     call excp_ %+ %1
     iretq
 %%end:
@@ -33,10 +34,3 @@ exception_handler control_protection
 exception_handler hypervisor_injection
 exception_handler vmm_communication
 exception_handler security
-
-
-
-
-
-
-

@@ -12,7 +12,11 @@ use core::arch::asm;
 
 use core::fmt;
 
-use alloc::{collections::VecDeque, vec::Vec};
+use alloc::{
+    collections::VecDeque,
+    sync::{Arc, Weak},
+    vec::Vec,
+};
 use spin::Mutex;
 
 // kernel thread IDs in the kernel are different from the PIDs of processes/threads
@@ -23,6 +27,10 @@ const KERNEL_STACK_SIZE_PER_THREAD: u64 = 2 * 4096; // 8KiB
 const TICKS_PER_THREAD_SWITCH: usize = 20;
 
 const MAX_TASKS: usize = 64;
+
+#[repr(transparent)]
+#[derive(PartialEq, Clone, Copy)]
+pub struct ThreadID(usize);
 
 #[repr(C, packed)]
 #[derive(Clone, Copy, Debug)]
@@ -152,32 +160,18 @@ impl fmt::Display for RegisterState {
 }
 
 pub struct Thread {
-    id: usize,
+    id: ThreadID,
     regs: RegisterState,
 }
 
-impl Thread {
-    fn new_kernel_thread() -> Thread {
-        Thread {
-            id: 0,
-            regs: RegisterState::kernel_new(),
-        }
-    }
-
-    fn new_user_thread() -> Thread {
-        Thread {
-            id: 0,
-            regs: RegisterState::user_new(),
-        }
-    }
-}
-
 struct Scheduler {
-    running_threads: Vec<Thread>,
-    busy_threads: Vec<Thread>,
-    current_queue: VecDeque<usize>, // TID, front is always the current thread
+    // what a resplendent piece of code
+    threads: Vec<Option<Arc<Mutex<Thread>>>>,
+    running_threads: Vec<ThreadID>,
+    busy_threads: Vec<ThreadID>,
+    current_queue: VecDeque<ThreadID>, // TID, front is always the current thread
     current_ticks: usize,
-    temp_counter: usize,
+    thread_count: usize,
 }
 
 extern "C" {
@@ -185,68 +179,110 @@ extern "C" {
 }
 
 impl Scheduler {
-    fn alloc_kernel_stack(tid: usize) -> u64 {
+    fn alloc_kernel_stack(tid: ThreadID) -> u64 {
         // FIXME: increase limit
-        assert!(tid < MAX_TASKS);
-        KERNEL_THREAD_STACKS_START.get() + tid as u64 * KERNEL_STACK_SIZE_PER_THREAD
+        assert!(tid.0 < MAX_TASKS);
+        KERNEL_THREAD_STACKS_START.get() + tid.0 as u64 * KERNEL_STACK_SIZE_PER_THREAD
+    }
+
+    fn alloc_tid(&mut self) -> ThreadID {
+        let tid = if self.thread_count == self.threads.capacity() {
+            let old_size = self.threads.capacity() * 2;
+            self.threads.resize(old_size * 2, None);
+            old_size
+        } else {
+            self.threads.iter().position(Option::is_none).unwrap()
+        };
+
+        self.thread_count += 1;
+
+        ThreadID(tid)
+    }
+
+    fn new_kernel_thread(&mut self) -> Thread {
+        Thread {
+            id: self.alloc_tid(),
+            regs: RegisterState::kernel_new(),
+        }
     }
 
     /// spawns a kernel thread and returns the thread id
-    fn spawn_kernel_thread(&mut self, func: fn()) -> usize {
-        let mut thread = Thread::new_kernel_thread();
-        let tid = self.temp_counter;
-        self.temp_counter += 1;
+    fn spawn_kernel_thread(&mut self, func: fn()) -> Weak<Mutex<Thread>> {
+        let tid: ThreadID;
+        let thread = Arc::new(Mutex::new({
+            let mut thread = self.new_kernel_thread();
+            tid = thread.id;
 
-        thread.id = tid;
-        thread.regs.rsp = Scheduler::alloc_kernel_stack(thread.id) + KERNEL_STACK_SIZE_PER_THREAD;
+            // push the address of remove_running_thread on the stack so the thread
+            // will return to that address and get killed
+            thread.regs.rsp =
+                Scheduler::alloc_kernel_stack(thread.id) + KERNEL_STACK_SIZE_PER_THREAD;
+            thread.regs.rsp -= core::mem::size_of::<u64>() as u64;
+            unsafe {
+                *(thread.regs.rsp as *mut u64) = remove_current_thread as u64;
+            }
 
-        // push the address of remove_running_thread on the stack so the thread
-        // will return to that address and get killed
+            thread.regs.rip = func as u64;
+            thread
+        }));
 
-        thread.regs.rsp -= core::mem::size_of::<u64>() as u64;
-        unsafe {
-            *(thread.regs.rsp as *mut u64) = remove_running_thread as u64;
+        let weak = Arc::downgrade(&thread);
+        self.threads[tid.0] = Some(thread);
+        self.running_threads.push(tid);
+
+        println!("spawn_kernel_thread: {:#x}", tid.0);
+        weak
+    }
+
+    fn new_user_thread(&mut self) -> Thread {
+        Thread {
+            id: self.alloc_tid(),
+            regs: RegisterState::user_new(),
         }
+    }
 
-        thread.regs.rip = func as u64;
+    fn create_user_thread(&mut self) -> Weak<Mutex<Thread>> {
+        let tid: ThreadID;
+        let thread = Arc::new(Mutex::new({
+            let thread = self.new_user_thread();
+            tid = thread.id;
+            thread
+        }));
 
-        println!("spawn_kernel_thread: {:#x}", func as u64);
-        self.running_threads.push(thread);
+        let weak = Arc::downgrade(&thread);
+        self.threads[tid.0] = Some(thread);
 
-        tid
+        println!("spawn_user_thread: {:#x}", tid.0);
+        weak
     }
 
     /// saves the registers of the currently running thread
     fn save_regs(&mut self, regs: RegisterState) {
-        // println!("{:?}", regs);
         let tid = *self.current_queue.front().unwrap();
-        // TODO: simply iterating over it may be faster
-        let thread = self.get_running_thread(tid).unwrap();
+
+        let thread_lock = self.get_thread(tid).unwrap().upgrade().unwrap();
+        let mut thread = thread_lock.lock();
         thread.regs = regs;
     }
 
-    /// returns whethere the linked list contained the TID or not
-    fn remove_running_thread(&mut self, tid: usize) -> bool {
-        if self.current_queue.len() == 0 {
-            return false;
-        }
+    fn remove_thread(&mut self, tid: ThreadID) {
+        assert!(self.current_queue.len() != 0);
 
         // check whether we are removing the current thread
         assert!(*self.current_queue.front().unwrap() != tid);
 
         // find the thread and remove it
-        for (idx, &thread) in self.current_queue.iter().enumerate() {
-            if thread != tid {
-                continue;
-            }
-            self.current_queue.remove(idx);
-            return true;
-        }
+        let idx = self
+            .current_queue
+            .iter()
+            .position(|thread_id| *thread_id == tid)
+            .unwrap();
+        self.current_queue.remove(idx);
 
-        false
+        todo!()
     }
 
-    fn block_thread(&mut self, tid: usize) {
+    fn block_thread(&mut self, tid: ThreadID) {
         assert!(self.current_queue.len() != 0);
 
         // check whether we are removing the current thread
@@ -265,7 +301,7 @@ impl Scheduler {
         let running_threads_idx = self
             .running_threads
             .iter()
-            .position(|thread| thread.id == tid)
+            .position(|thread_id| *thread_id == tid)
             .unwrap();
 
         let thread = self.running_threads.remove(running_threads_idx);
@@ -283,23 +319,38 @@ impl Scheduler {
 
     /// removes current thread and switches to the next one
     fn remove_current_thread(&mut self) -> ! {
+        todo!();
+        /*
         let removed_thread = self.current_queue.pop_front().unwrap();
         // TODO: simply iterating over it may be faster
         let idx = self
             .running_threads
             .iter()
-            .position(|thread| thread.id == removed_thread)
+            .position(|tid| *tid == removed_thread)
             .unwrap();
 
         self.running_threads.remove(idx);
 
         self.switch_thread();
+        */
     }
 
-    fn get_running_thread(&mut self, tid: usize) -> Option<&mut Thread> {
-        self.running_threads
-            .iter_mut()
-            .find(|thread| thread.id == tid)
+    // such a splendiferous function
+    fn get_thread(&mut self, tid: ThreadID) -> Option<Weak<Mutex<Thread>>> {
+        let thread = self.threads.iter().find(|thread| match thread {
+            Some(t) => t.lock().id == tid,
+            None => false,
+        });
+
+        match thread {
+            Some(t) => Some(Arc::downgrade(&t.clone().unwrap())),
+            None => None,
+        }
+    }
+
+    fn run_user_thread(&mut self, tid: ThreadID) {
+        // TODO: add checks
+        self.running_threads.push(tid);
     }
 
     fn fill_queue(&mut self) {
@@ -307,12 +358,12 @@ impl Scheduler {
 
         // if no other threads are running add the sentinel thread to the queue
         if self.running_threads.len() == 1 {
-            self.current_queue.push_back(0);
+            self.current_queue.push_back(ThreadID(0));
         }
 
         // otherwise add all running threads except the sentinel thread
-        for thread in self.running_threads.iter().skip(1) {
-            self.current_queue.push_back(thread.id);
+        for tid in self.running_threads.iter().skip(1) {
+            self.current_queue.push_back(*tid);
         }
     }
 
@@ -332,7 +383,11 @@ impl Scheduler {
 
         // the next thread because its always the current thread
         let next_thread_id = *self.current_queue.front().unwrap();
-        let next_thread = self.get_running_thread(next_thread_id).unwrap();
+        let regs = {
+            let next_thread_lock = self.get_thread(next_thread_id).unwrap().upgrade().unwrap();
+            let next_thread = next_thread_lock.lock();
+            next_thread.regs
+        };
 
         if SCHEDULER.is_locked() {
             // we have to force unlock it because we wont return
@@ -341,11 +396,11 @@ impl Scheduler {
             }
         }
 
-        //println!("switch thread: {}", next_thread_id);
+        println!("switch thread: {}", next_thread_id.0);
 
         unsafe {
             // push the registers on the stack and switch tasks
-            x86_64_switch_task(next_thread.regs);
+            x86_64_switch_task(regs);
         }
     }
 
@@ -360,11 +415,12 @@ impl Scheduler {
 
     const fn new() -> Scheduler {
         Scheduler {
+            threads: Vec::new(),
             running_threads: Vec::new(),
             busy_threads: Vec::new(),
             current_queue: VecDeque::new(),
             current_ticks: 0,
-            temp_counter: 0,
+            thread_count: 0,
         }
     }
 }
@@ -397,6 +453,8 @@ pub fn init() {
         }
     }
 
+    sched.threads.resize(16, None);
+
     // spawn sentinel thread
     sched.spawn_kernel_thread(|| loop {
         println!("sentinel thread");
@@ -410,10 +468,33 @@ pub fn init() {
     });
 }
 
-pub fn spawn_kernel_thread(func: fn()) {
+pub fn spawn_kernel_thread(func: fn()) -> Weak<Mutex<Thread>> {
     assert!(!x86_64::interrupts_enabled());
     let mut sched = SCHEDULER.lock();
-    sched.spawn_kernel_thread(func);
+    sched.spawn_kernel_thread(func)
+}
+
+pub fn create_user_thread() -> Weak<Mutex<Thread>> {
+    let interrupts_enabled = x86_64::interrupts_enabled();
+    if interrupts_enabled {
+        x86_64::disable_interrupts();
+    }
+
+    let val = {
+        let mut sched = SCHEDULER.lock();
+        sched.create_user_thread()
+    };
+
+    if interrupts_enabled {
+        x86_64::enable_interrupts();
+    }
+
+    val
+}
+
+pub fn run_user_thread(tid: ThreadID) {
+    let mut sched = SCHEDULER.lock();
+    sched.run_user_thread(tid);
 }
 
 pub fn switch_thread() {
@@ -438,14 +519,14 @@ pub fn start() -> ! {
     sched.switch_thread();
 }
 
-pub fn remove_running_thread() {
+pub fn remove_current_thread() {
     x86_64::disable_interrupts();
 
     let mut sched = SCHEDULER.lock();
     sched.remove_current_thread();
 }
 
-pub fn current_tid() -> usize {
+pub fn current_tid() -> ThreadID {
     let sched = SCHEDULER.lock();
     *sched.current_queue.front().unwrap()
 }
