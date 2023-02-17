@@ -28,7 +28,7 @@ x86_64_get_cr3:
 
 global x86_64_switch_task:function (x86_64_switch_task.end - x86_64_switch_task)
 x86_64_switch_task:
-    add rsp, 8 ; we dont need the return value
+    add rsp, 8 ; we dont need the return address
     pop rax
     pop rbx
     pop rcx

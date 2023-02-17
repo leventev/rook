@@ -132,7 +132,6 @@ pub fn load_process(proc: &mut Process, exec_path: &str) -> bool {
     // TODO: validate
     main_thread.regs.rip = elf_file.ehdr.e_entry;
     main_thread.regs.rsp = stack_bottom;
-    run_user_thread(main_thread.id);
 
     true
 }
@@ -144,4 +143,7 @@ pub fn load_base_process(exec_path: &str) {
     if !load_process(&mut proc, exec_path) {
         panic!("failed to load base process");
     }
+
+    let main_thread_id = { proc.main_thread.upgrade().unwrap().lock().id };
+    run_user_thread(main_thread_id);
 }

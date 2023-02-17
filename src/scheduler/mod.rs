@@ -159,9 +159,17 @@ impl fmt::Display for RegisterState {
     }
 }
 
+#[derive(Clone, Copy)]
+pub enum ThreadState {
+    None,
+    Running,
+    Busy,
+}
+
 pub struct Thread {
     id: ThreadID,
     regs: RegisterState,
+    state: ThreadState,
 }
 
 struct Scheduler {
@@ -203,6 +211,7 @@ impl Scheduler {
         Thread {
             id: self.alloc_tid(),
             regs: RegisterState::kernel_new(),
+            state: ThreadState::None,
         }
     }
 
@@ -222,6 +231,7 @@ impl Scheduler {
                 *(thread.regs.rsp as *mut u64) = remove_current_thread as u64;
             }
 
+            thread.state = ThreadState::Running;
             thread.regs.rip = func as u64;
             thread
         }));
@@ -238,6 +248,7 @@ impl Scheduler {
         Thread {
             id: self.alloc_tid(),
             regs: RegisterState::user_new(),
+            state: ThreadState::None,
         }
     }
 
@@ -260,26 +271,55 @@ impl Scheduler {
     fn save_regs(&mut self, regs: RegisterState) {
         let tid = *self.current_queue.front().unwrap();
 
-        let thread_lock = self.get_thread(tid).unwrap().upgrade().unwrap();
+        let thread_lock = self.get_thread(tid).unwrap();
         let mut thread = thread_lock.lock();
         thread.regs = regs;
     }
 
-    fn remove_thread(&mut self, tid: ThreadID) {
-        assert!(self.current_queue.len() != 0);
-
-        // check whether we are removing the current thread
-        assert!(*self.current_queue.front().unwrap() != tid);
-
-        // find the thread and remove it
+    fn remove_from_current_queue(&mut self, tid: ThreadID) {
         let idx = self
             .current_queue
             .iter()
             .position(|thread_id| *thread_id == tid)
             .unwrap();
         self.current_queue.remove(idx);
+    }
 
-        todo!()
+    fn remove_from_running_threads(&mut self, tid: ThreadID) {
+        let idx = self
+            .running_threads
+            .iter()
+            .position(|thread_id| *thread_id == tid)
+            .unwrap();
+        self.running_threads.remove(idx);
+    }
+
+    fn remove_from_busy_threads(&mut self, tid: ThreadID) {
+        let idx = self
+            .busy_threads
+            .iter()
+            .position(|thread_id| *thread_id == tid)
+            .unwrap();
+        self.busy_threads.remove(idx);
+    }
+
+    fn remove_thread(&mut self, tid: ThreadID) {
+        println!("remove thread");
+        // check whether we are removing the current thread
+        assert!(*self.current_queue.front().unwrap() != tid);
+        assert!(self.threads[tid.0].is_some());
+
+        self.remove_from_current_queue(tid);
+
+        let state = self.threads[tid.0].as_ref().unwrap().lock().state;
+        match state {
+            ThreadState::Busy => self.remove_from_busy_threads(tid),
+            ThreadState::Running => self.remove_from_running_threads(tid),
+            _ => unreachable!(),
+        };
+
+        self.thread_count -= 1;
+        self.threads[tid.0] = None;
     }
 
     fn block_thread(&mut self, tid: ThreadID) {
@@ -304,8 +344,13 @@ impl Scheduler {
             .position(|thread_id| *thread_id == tid)
             .unwrap();
 
-        let thread = self.running_threads.remove(running_threads_idx);
-        self.busy_threads.push(thread);
+        self.running_threads.remove(running_threads_idx);
+        self.busy_threads.push(tid);
+
+        {
+            let thread_lock = self.threads[tid.0].clone().unwrap();
+            thread_lock.lock().state = ThreadState::Busy;
+        }
 
         if is_current_thread {
             self.switch_thread();
@@ -319,37 +364,38 @@ impl Scheduler {
 
     /// removes current thread and switches to the next one
     fn remove_current_thread(&mut self) -> ! {
-        todo!();
-        /*
-        let removed_thread = self.current_queue.pop_front().unwrap();
+        let removed_tid = self.current_queue.pop_front().unwrap();
         // TODO: simply iterating over it may be faster
         let idx = self
             .running_threads
             .iter()
-            .position(|tid| *tid == removed_thread)
+            .position(|tid| *tid == removed_tid)
             .unwrap();
 
         self.running_threads.remove(idx);
+        self.threads[removed_tid.0] = None;
 
         self.switch_thread();
-        */
     }
 
     // such a splendiferous function
-    fn get_thread(&mut self, tid: ThreadID) -> Option<Weak<Mutex<Thread>>> {
+    fn get_thread(&mut self, tid: ThreadID) -> Option<Arc<Mutex<Thread>>> {
         let thread = self.threads.iter().find(|thread| match thread {
             Some(t) => t.lock().id == tid,
             None => false,
         });
 
         match thread {
-            Some(t) => Some(Arc::downgrade(&t.clone().unwrap())),
+            Some(t) => Some(Arc::clone(&t.as_ref().unwrap())),
             None => None,
         }
     }
 
     fn run_user_thread(&mut self, tid: ThreadID) {
+        println!("run user thread before lock");
         // TODO: add checks
+        let lock = self.threads[tid.0].as_mut().unwrap();
+        lock.lock().state = ThreadState::Running;
         self.running_threads.push(tid);
     }
 
@@ -384,7 +430,7 @@ impl Scheduler {
         // the next thread because its always the current thread
         let next_thread_id = *self.current_queue.front().unwrap();
         let regs = {
-            let next_thread_lock = self.get_thread(next_thread_id).unwrap().upgrade().unwrap();
+            let next_thread_lock = self.get_thread(next_thread_id).unwrap();
             let next_thread = next_thread_lock.lock();
             next_thread.regs
         };
@@ -396,7 +442,7 @@ impl Scheduler {
             }
         }
 
-        println!("switch thread: {}", next_thread_id.0);
+        //println!("switch thread: {}", next_thread_id.0);
 
         unsafe {
             // push the registers on the stack and switch tasks
@@ -470,6 +516,7 @@ pub fn init() {
 
 pub fn spawn_kernel_thread(func: fn()) -> Weak<Mutex<Thread>> {
     assert!(!x86_64::interrupts_enabled());
+
     let mut sched = SCHEDULER.lock();
     sched.spawn_kernel_thread(func)
 }
@@ -493,8 +540,19 @@ pub fn create_user_thread() -> Weak<Mutex<Thread>> {
 }
 
 pub fn run_user_thread(tid: ThreadID) {
-    let mut sched = SCHEDULER.lock();
-    sched.run_user_thread(tid);
+    let interrupts_enabled = x86_64::interrupts_enabled();
+    if interrupts_enabled {
+        x86_64::disable_interrupts();
+    }
+
+    {
+        let mut sched = SCHEDULER.lock();
+        sched.run_user_thread(tid);
+    }
+
+    if interrupts_enabled {
+        x86_64::enable_interrupts();
+    }
 }
 
 pub fn switch_thread() {

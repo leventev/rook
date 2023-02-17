@@ -137,8 +137,6 @@ fn main_init_thread() {
 
     println!("main init thread");
     proc::load_base_process("/bin/test");
-
-    loop {}
 }
 
 #[panic_handler]
