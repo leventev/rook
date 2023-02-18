@@ -1,7 +1,11 @@
 pub mod proc;
 
 use crate::{
-    arch::x86_64::{self, paging::PageFlags},
+    arch::x86_64::{
+        self,
+        gdt::{segment_selector, GDT_KERNEL_CODE, GDT_KERNEL_DATA, GDT_USER_CODE, GDT_USER_DATA},
+        paging::PageFlags,
+    },
     mm::{
         phys,
         virt::{self, KERNEL_THREAD_STACKS_START},
@@ -13,6 +17,7 @@ use core::arch::asm;
 use core::fmt;
 
 use alloc::{
+    boxed::Box,
     collections::VecDeque,
     sync::{Arc, Weak},
     vec::Vec,
@@ -82,16 +87,16 @@ impl RegisterState {
             r14: 0,
             r15: 0,
             rbp: 0,
-            es: 0x30,
-            ds: 0x30,
-            fs: 0x30,
-            gs: 0x30,
+            es: segment_selector(GDT_KERNEL_DATA, 0),
+            ds: segment_selector(GDT_KERNEL_DATA, 0),
+            fs: segment_selector(GDT_KERNEL_DATA, 0),
+            gs: segment_selector(GDT_KERNEL_DATA, 0),
             rip: 0,
-            cs: 0x28,
+            cs: segment_selector(GDT_KERNEL_CODE, 0),
             rflags: (x86_64::Rflags::INTERRUPT | x86_64::Rflags::RESERVED_BIT_1).bits(),
             // FIXME: this may not be the best option ^^^^
             rsp: 0,
-            ss: 0x30,
+            ss: segment_selector(GDT_KERNEL_DATA, 0),
         }
     }
 
@@ -112,16 +117,16 @@ impl RegisterState {
             r14: 0,
             r15: 0,
             rbp: 0,
-            es: 0x30,
-            ds: 0x30,
-            fs: 0x30,
-            gs: 0x30,
+            es: segment_selector(GDT_USER_DATA, 3),
+            ds: segment_selector(GDT_USER_DATA, 3),
+            fs: segment_selector(GDT_USER_DATA, 3),
+            gs: segment_selector(GDT_USER_DATA, 3),
             rip: 0,
-            cs: 0x28,
+            cs: segment_selector(GDT_USER_CODE, 3),
             rflags: (x86_64::Rflags::INTERRUPT | x86_64::Rflags::RESERVED_BIT_1).bits(),
             // FIXME: this may not be the best option ^^^^
             rsp: 0,
-            ss: 0x30,
+            ss: segment_selector(GDT_USER_DATA, 3),
         }
     }
 }
@@ -168,8 +173,11 @@ pub enum ThreadState {
 
 pub struct Thread {
     id: ThreadID,
-    regs: RegisterState,
     state: ThreadState,
+    user_thread: bool,
+    stack_bottom: u64,
+    kernel_regs: RegisterState,
+    user_regs: RegisterState,
 }
 
 struct Scheduler {
@@ -187,7 +195,7 @@ extern "C" {
 }
 
 impl Scheduler {
-    fn alloc_kernel_stack(tid: ThreadID) -> u64 {
+    fn get_kernel_stack(tid: ThreadID) -> u64 {
         // FIXME: increase limit
         assert!(tid.0 < MAX_TASKS);
         KERNEL_THREAD_STACKS_START.get() + tid.0 as u64 * KERNEL_STACK_SIZE_PER_THREAD
@@ -208,10 +216,14 @@ impl Scheduler {
     }
 
     fn new_kernel_thread(&mut self) -> Thread {
+        let tid = self.alloc_tid();
         Thread {
-            id: self.alloc_tid(),
-            regs: RegisterState::kernel_new(),
+            id: tid,
             state: ThreadState::None,
+            kernel_regs: RegisterState::kernel_new(),
+            stack_bottom: Self::get_kernel_stack(tid) + KERNEL_STACK_SIZE_PER_THREAD,
+            user_regs: RegisterState::user_new(),
+            user_thread: false,
         }
     }
 
@@ -224,15 +236,14 @@ impl Scheduler {
 
             // push the address of remove_running_thread on the stack so the thread
             // will return to that address and get killed
-            thread.regs.rsp =
-                Scheduler::alloc_kernel_stack(thread.id) + KERNEL_STACK_SIZE_PER_THREAD;
-            thread.regs.rsp -= core::mem::size_of::<u64>() as u64;
+            thread.kernel_regs.rsp = thread.stack_bottom;
+            thread.kernel_regs.rsp -= core::mem::size_of::<u64>() as u64;
             unsafe {
-                *(thread.regs.rsp as *mut u64) = remove_current_thread as u64;
+                *(thread.kernel_regs.rsp as *mut u64) = remove_current_thread as u64;
             }
 
             thread.state = ThreadState::Running;
-            thread.regs.rip = func as u64;
+            thread.kernel_regs.rip = func as u64;
             thread
         }));
 
@@ -245,10 +256,14 @@ impl Scheduler {
     }
 
     fn new_user_thread(&mut self) -> Thread {
+        let tid = self.alloc_tid();
         Thread {
-            id: self.alloc_tid(),
-            regs: RegisterState::user_new(),
+            id: tid,
             state: ThreadState::None,
+            stack_bottom: Self::get_kernel_stack(tid),
+            kernel_regs: RegisterState::user_new(),
+            user_regs: RegisterState::user_new(),
+            user_thread: true,
         }
     }
 
@@ -273,7 +288,12 @@ impl Scheduler {
 
         let thread_lock = self.get_thread(tid).unwrap();
         let mut thread = thread_lock.lock();
-        thread.regs = regs;
+        // TODO: optimize this
+        if thread.user_thread {
+            thread.user_regs = regs;
+        } else {
+            thread.kernel_regs = regs;
+        }
     }
 
     fn remove_from_current_queue(&mut self, tid: ThreadID) {
@@ -304,7 +324,6 @@ impl Scheduler {
     }
 
     fn remove_thread(&mut self, tid: ThreadID) {
-        println!("remove thread");
         // check whether we are removing the current thread
         assert!(*self.current_queue.front().unwrap() != tid);
         assert!(self.threads[tid.0].is_some());
@@ -392,7 +411,6 @@ impl Scheduler {
     }
 
     fn run_user_thread(&mut self, tid: ThreadID) {
-        println!("run user thread before lock");
         // TODO: add checks
         let lock = self.threads[tid.0].as_mut().unwrap();
         lock.lock().state = ThreadState::Running;
@@ -432,7 +450,10 @@ impl Scheduler {
         let regs = {
             let next_thread_lock = self.get_thread(next_thread_id).unwrap();
             let next_thread = next_thread_lock.lock();
-            next_thread.regs
+            unsafe {
+                x86_64::tss::TSS.rsp0 = next_thread.stack_bottom;
+            }
+            next_thread.kernel_regs
         };
 
         if SCHEDULER.is_locked() {

@@ -26,6 +26,34 @@ x86_64_get_cr3:
     ret
 .end:
 
+extern GDT_DESCRIPTOR
+
+global load_gdt:function (load_gdt.end - load_gdt)
+load_gdt:
+    lgdt [GDT_DESCRIPTOR]
+    ; 0x08 is the kernel code segment
+    push 0x08
+    lea rax, [rel .reload_segments]
+    push rax
+    retfq
+
+.reload_segments:
+    ; 0x08 is the kernel data segment
+    mov ax, 0x10
+    mov ds, ax
+    mov es, ax
+    mov fs, ax
+    mov gs, ax
+    mov ss, ax
+
+.load_tr:
+    ; 0x28 is the TSS low segment
+    mov ax, 0x28 | 3
+    ltr ax
+
+    ret
+.end:
+
 global x86_64_switch_task:function (x86_64_switch_task.end - x86_64_switch_task)
 x86_64_switch_task:
     add rsp, 8 ; we dont need the return address

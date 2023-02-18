@@ -3,6 +3,8 @@ pub mod idt;
 pub mod paging;
 pub mod pic;
 pub mod stacktrace;
+pub mod tss;
+pub mod gdt;
 
 use core::arch::asm;
 

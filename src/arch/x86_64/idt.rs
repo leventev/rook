@@ -1,6 +1,9 @@
 const IDT_ENTRIES: usize = 256;
 
-use super::exception::*;
+use super::{
+    exception::*,
+    gdt::{self, segment_selector, GDT_KERNEL_CODE},
+};
 
 #[derive(Clone, Copy)]
 #[repr(C, packed)]
@@ -39,11 +42,11 @@ impl IDTEntry {
         }
     }
 
-    pub fn new(offset: u64, segment: u16, ist: u8, types: IDTTypeAttr) -> IDTEntry {
+    pub fn new(offset: u64, segment: u64, ist: u8, types: IDTTypeAttr) -> IDTEntry {
         IDTEntry {
             // TODO: check for valid input?
             offset_low: (offset & 0xFFFF) as u16,
-            segment_selector: segment,
+            segment_selector: segment as u16,
             ist: ist,
             type_attributes: types.bits,
             offset_mid: ((offset >> 16) & 0xFFFF) as u16,
@@ -61,18 +64,10 @@ struct IDTRValue {
     addr: u64,
 }
 
-const fn segement_selector(idx: u16, gdt: bool, priv_level: u16) -> u16 {
-    assert!(idx % 8 == 0);
-    assert!(priv_level < 4);
-    idx | ((if gdt { 0 } else { 1 }) << 3) | priv_level
-}
-
 #[inline(always)]
 unsafe fn load_idt(idt_descriptor: &IDTRValue) {
     core::arch::asm!("lidt [{}]", in(reg) idt_descriptor, options(nostack));
 }
-
-const KERNEL_CODE_SEGMENT: u16 = segement_selector(0x28, true, 0);
 
 pub fn init() {
     // TODO: consider moving this somewhere else
@@ -117,7 +112,12 @@ pub fn init() {
 
     unsafe {
         for (i, addr) in exception_handlers.iter().enumerate() {
-            IDT[i] = IDTEntry::new(*addr, KERNEL_CODE_SEGMENT, 0, kernel_code_type);
+            IDT[i] = IDTEntry::new(
+                *addr,
+                segment_selector(GDT_KERNEL_CODE, 0),
+                0,
+                kernel_code_type,
+            );
         }
 
         let idtr = IDTRValue {
@@ -135,6 +135,6 @@ pub fn install_interrupt_handler(idx: usize, handler: u64) {
     let kernel_code_type: IDTTypeAttr =
         IDTTypeAttr::TRAP_GATE | IDTTypeAttr::PRESENT | IDTTypeAttr::RING0;
     unsafe {
-        IDT[idx] = IDTEntry::new(handler, KERNEL_CODE_SEGMENT, 0, kernel_code_type);
+        IDT[idx] = IDTEntry::new(handler, segment_selector(GDT_KERNEL_CODE, 0), 0, kernel_code_type);
     }
 }

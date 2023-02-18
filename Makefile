@@ -12,7 +12,7 @@ CROSSDIR=$(HOME)/opt/cross
 BINUTILS_COMPFLAGS=--target=x86_64-rook --prefix=$(CROSSDIR)\
 	--with-sysroot=$(SYSROOT) --disable-nls --disable-werror
 
-GCC_COMPFLAGS =--target=x86_64-rook --prefix=$(CROSSDIR)\
+GCC_COMPFLAGS=--target=x86_64-rook --prefix=$(CROSSDIR)\
 	--with-sysroot=$(SYSROOT) --disable-nls --disable-werror --enable-languages=c
 
 .PHONY: libc
