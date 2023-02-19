@@ -24,11 +24,12 @@ mod fs;
 mod mm;
 mod pci;
 mod scheduler;
+mod syscall;
 mod time;
 mod utils;
 
 use alloc::{slice, string::String};
-use arch::x86_64::{gdt, tss};
+use arch::x86_64::gdt;
 use limine::{
     LimineBootTimeRequest, LimineFramebufferRequest, LimineHhdmRequest, LimineMemmapRequest,
 };
@@ -137,6 +138,8 @@ fn main_init_thread() {
     // we have to initialize the font after kalloc has been initialized
     framebuffer::init_font();
     framebuffer::draw_text("test", 0, 0);
+
+    syscall::init();
 
     println!("main init thread");
     proc::load_base_process("/bin/test");

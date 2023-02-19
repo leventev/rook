@@ -17,7 +17,6 @@ use core::arch::asm;
 use core::fmt;
 
 use alloc::{
-    boxed::Box,
     collections::VecDeque,
     sync::{Arc, Weak},
     vec::Vec,
@@ -453,7 +452,12 @@ impl Scheduler {
             unsafe {
                 x86_64::tss::TSS.rsp0 = next_thread.stack_bottom;
             }
-            next_thread.kernel_regs
+            // TODO
+            if next_thread.user_thread {
+                next_thread.user_regs
+            } else {
+                next_thread.kernel_regs
+            }
         };
 
         if SCHEDULER.is_locked() {
@@ -463,7 +467,7 @@ impl Scheduler {
             }
         }
 
-        //println!("switch thread: {}", next_thread_id.0);
+        // println!("switch thread: {} regs: {}", next_thread_id.0, regs);
 
         unsafe {
             // push the registers on the stack and switch tasks

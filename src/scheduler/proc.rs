@@ -130,8 +130,8 @@ pub fn load_process(proc: &mut Process, exec_path: &str) -> bool {
     let stack_bottom = STACK_BASE + STACK_SIZE;
 
     // TODO: validate
-    main_thread.kernel_regs.rip = elf_file.ehdr.e_entry;
-    main_thread.kernel_regs.rsp = stack_bottom;
+    main_thread.user_regs.rip = elf_file.ehdr.e_entry;
+    main_thread.user_regs.rsp = stack_bottom;
 
     true
 }

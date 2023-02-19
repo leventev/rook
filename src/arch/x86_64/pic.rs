@@ -1,3 +1,5 @@
+use crate::arch::x86_64::idt::IDTTypeAttr;
+
 use super::{idt, inb, outb};
 
 const PIC1_COMMAND: u16 = 0x20;
@@ -99,5 +101,6 @@ pub fn send_irq_eoi(irq: u8) {
 
 pub fn install_irq_handler(irq: u8, handler: u64) {
     assert!(irq < 16);
-    idt::install_interrupt_handler(IDT_IRQ_BASE + irq as usize, handler);
+    let idt_type = IDTTypeAttr::INTERRUPT_GATE | IDTTypeAttr::RING0 | IDTTypeAttr::PRESENT;
+    idt::install_interrupt_handler(IDT_IRQ_BASE + irq as usize, handler, idt_type, 0);
 }

@@ -98,6 +98,56 @@ x86_64_switch_task:
     iretq
 .end:
 
+
+extern handle_syscall
+global __handle_syscall:function (__handle_syscall.end - __handle_syscall)
+__handle_syscall:
+    ; set SS 
+    shl rax, 16
+    mov ax, 0x10
+    mov ss, ax
+    shr rax, 16
+
+    push rbp
+    push r15
+    push r14
+    push r13
+    push r12
+    push r11
+    push r10
+    push r9
+    push r8
+    push rdi
+    push rsi
+    push rdx
+    push rcx
+    push rbx
+
+    ; AMD64 ABI function call 4th argument is RCX but 4th argument in a syscall is r10
+    mov rcx, r10
+
+    push rax
+    call handle_syscall
+    add rsp, 8
+
+    pop rbx
+    pop rcx
+    pop rdx
+    pop rsi
+    pop rdi
+    pop r8
+    pop r9
+    pop r10
+    pop r11
+    pop r12
+    pop r13
+    pop r14
+    pop r15
+    pop rbp
+
+    iretq
+.end:
+
 extern __block_current_thread
 extern save_regs
 global x86_64_block_task:function (x86_64_block_task.end - x86_64_block_task)

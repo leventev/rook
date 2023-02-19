@@ -5,3 +5,4 @@ Cargo.lock
 bin/
 limine/
 root/
+*.o

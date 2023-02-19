@@ -2,7 +2,7 @@ const IDT_ENTRIES: usize = 256;
 
 use super::{
     exception::*,
-    gdt::{self, segment_selector, GDT_KERNEL_CODE},
+    gdt::{segment_selector, GDT_KERNEL_CODE},
 };
 
 #[derive(Clone, Copy)]
@@ -18,7 +18,7 @@ struct IDTEntry {
 }
 
 bitflags::bitflags! {
-    struct IDTTypeAttr: u8 {
+    pub struct IDTTypeAttr: u8 {
         const INTERRUPT_GATE = 0b1110;
         const TRAP_GATE = 0b1111;
         const RING0 = 0b00 << 5;
@@ -72,38 +72,38 @@ unsafe fn load_idt(idt_descriptor: &IDTRValue) {
 pub fn init() {
     // TODO: consider moving this somewhere else
     let exception_handlers: [u64; 32] = [
-        excp_div_by_zero as u64,                 // 0
-        excp_debug as u64,                       // 1
-        excp_non_maskable_interrutpt as u64,     // 2
-        excp_breakpoint as u64,                  // 3
-        excp_overflow as u64,                    // 4
-        excp_bound_range_exceeded as u64,        // 5
-        excp_invalid_opcode as u64,              // 6
-        excp_device_not_available as u64,        // 7
-        excp_double_fault as u64,                // 8
-        excp_coprocessor_segment_overrun as u64, // 9
-        excp_invalid_tss as u64,                 // 10
-        excp_segment_not_present as u64,         // 11
-        excp_stack_segment_fault as u64,         // 12
-        excp_general_protection_fault as u64,    // 13
-        excp_page_fault as u64,                  // 14
-        0,                                       // 15 - reserved
-        excp_x87 as u64,                         // 16
-        excp_alignment_check as u64,             // 17
-        excp_machine_check as u64,               // 18
-        excp_simd_fpe as u64,                    // 19
-        excp_virtualization as u64,              // 20
-        excp_control_protection as u64,          // 21
-        0,                                       // 22 - reserved
-        0,                                       // 23 - reserved
-        0,                                       // 24 - reserved
-        0,                                       // 25 - reserved
-        0,                                       // 26 - reserved
-        0,                                       // 27 - reserved
-        excp_hypervisor_injection as u64,        // 28
-        excp_vmm_communication as u64,           // 29
-        excp_security as u64,                    // 30
-        0,                                       // 31
+        __excp_div_by_zero as u64,                 // 0
+        __excp_debug as u64,                       // 1
+        __excp_non_maskable_interrutpt as u64,     // 2
+        __excp_breakpoint as u64,                  // 3
+        __excp_overflow as u64,                    // 4
+        __excp_bound_range_exceeded as u64,        // 5
+        __excp_invalid_opcode as u64,              // 6
+        __excp_device_not_available as u64,        // 7
+        __excp_double_fault as u64,                // 8
+        __excp_coprocessor_segment_overrun as u64, // 9
+        __excp_invalid_tss as u64,                 // 10
+        __excp_segment_not_present as u64,         // 11
+        __excp_stack_segment_fault as u64,         // 12
+        __excp_general_protection_fault as u64,    // 13
+        __excp_page_fault as u64,                  // 14
+        0,                                         // 15 - reserved
+        __excp_x87 as u64,                         // 16
+        __excp_alignment_check as u64,             // 17
+        __excp_machine_check as u64,               // 18
+        __excp_simd_fpe as u64,                    // 19
+        __excp_virtualization as u64,              // 20
+        __excp_control_protection as u64,          // 21
+        0,                                         // 22 - reserved
+        0,                                         // 23 - reserved
+        0,                                         // 24 - reserved
+        0,                                         // 25 - reserved
+        0,                                         // 26 - reserved
+        0,                                         // 27 - reserved
+        __excp_hypervisor_injection as u64,        // 28
+        __excp_vmm_communication as u64,           // 29
+        __excp_security as u64,                    // 30
+        0,                                         // 31
     ];
 
     // cant make this as a constant unfortunately
@@ -129,12 +129,13 @@ pub fn init() {
     }
 }
 
-pub fn install_interrupt_handler(idx: usize, handler: u64) {
+pub fn install_interrupt_handler(idx: usize, handler: u64, desc_type: IDTTypeAttr, privilege: u64) {
     assert!(idx < 256);
+    assert!(privilege < 4);
 
-    let kernel_code_type: IDTTypeAttr =
-        IDTTypeAttr::TRAP_GATE | IDTTypeAttr::PRESENT | IDTTypeAttr::RING0;
+    let selector = segment_selector(GDT_KERNEL_CODE, privilege);
+
     unsafe {
-        IDT[idx] = IDTEntry::new(handler, segment_selector(GDT_KERNEL_CODE, 0), 0, kernel_code_type);
+        IDT[idx] = IDTEntry::new(handler, selector, 0, desc_type);
     }
 }

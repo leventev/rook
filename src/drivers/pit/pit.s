@@ -11,8 +11,6 @@ rax_temp: dq 0
 section .text
 global __pit_timer_interrupt:function (__pit_timer_interrupt.end - __pit_timer_interrupt)
 __pit_timer_interrupt:
-    cli
-
     mov [rax_temp], rax
 
     mov rax, gs
