@@ -5,6 +5,7 @@ pub mod paging;
 pub mod pic;
 pub mod stacktrace;
 pub mod tss;
+pub mod syscall;
 
 use core::arch::asm;
 

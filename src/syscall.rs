@@ -1,5 +1,6 @@
-use crate::{
-    arch::x86_64::idt::{self, IDTTypeAttr},
+use crate::arch::x86_64::{
+    self,
+    idt::{self, IDTTypeAttr},
 };
 
 pub struct Syscall {
@@ -13,12 +14,7 @@ impl Syscall {
     }
 }
 
-fn test(args: [u64; 6]) -> u64 {
-    println!("test syscall called, args: {:?}", args);
-    0x1234
-}
-
-static SYSCALL_TABLE: [Syscall; 1] = [Syscall::new("test", test)];
+static SYSCALL_TABLE: [Syscall; 1] = [Syscall::new("write", x86_64::syscall::io::sys_write)];
 
 #[no_mangle]
 fn handle_syscall(

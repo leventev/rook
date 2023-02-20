@@ -137,7 +137,6 @@ fn main_init_thread() {
 
     // we have to initialize the font after kalloc has been initialized
     framebuffer::init_font();
-    framebuffer::draw_text("test", 0, 0);
 
     syscall::init();
 

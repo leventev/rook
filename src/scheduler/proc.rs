@@ -1,6 +1,6 @@
 use crate::{
     arch::x86_64::{get_current_pml4, paging::PageFlags},
-    fs,
+    fs::{self, FileDescriptor},
     mm::{
         phys,
         virt::{self, map_4kib, switch_pml4, PAGE_SIZE_4KIB},
@@ -23,7 +23,11 @@ pub struct Process {
     pid: usize,
     main_thread: Weak<Mutex<Thread>>,
     pml4_phys: PhysAddr,
+    file_descriptors: Vec<Option<Weak<FileDescriptor>>>,
+    file_descriptors_allocated: usize,
 }
+
+unsafe impl Send for Process {}
 
 static PROCESSES: Mutex<Vec<Option<Process>>> = Mutex::new(Vec::new());
 
@@ -38,7 +42,55 @@ impl Process {
             pid,
             main_thread: create_user_thread(),
             pml4_phys: pml4,
+            file_descriptors: Vec::with_capacity(8),
+            file_descriptors_allocated: 0,
         }
+    }
+
+    pub fn new_fd(&mut self, hint: Option<usize>, file_descriptor: Weak<FileDescriptor>) -> usize {
+        assert!(self.file_descriptors_allocated <= self.file_descriptors.capacity());
+
+        let fd = match hint {
+            Some(n) => {
+                // if a hint was provided allocate enough space then return
+                let mut size = self.file_descriptors.capacity();
+                while size < n {
+                    size *= 2;
+                }
+                self.file_descriptors.resize(size, None);
+                n
+            }
+            None => {
+                if self.file_descriptors_allocated == self.file_descriptors.capacity() {
+                    // if there is not enough space, double the vector size
+                    let old_size = self.file_descriptors.capacity();
+                    let size = old_size * 2;
+                    self.file_descriptors.resize(size, None);
+
+                    old_size
+                } else {
+                    // else find the first free fd
+                    self.file_descriptors
+                        .iter()
+                        .position(Option::is_none)
+                        .unwrap()
+                }
+            }
+        };
+
+        self.file_descriptors[fd] = Some(file_descriptor);
+        self.file_descriptors_allocated += 1;
+        fd
+    }
+
+    pub fn free_fd(&mut self, fd: usize) {
+        assert!(fd < self.file_descriptors.capacity());
+        assert!(self.file_descriptors[fd].is_some());
+        self.file_descriptors[fd] = None;
+    }
+
+    pub fn get_fd(&self, fd: usize) -> Option<Weak<FileDescriptor>> {
+        self.file_descriptors.get(fd).unwrap_or(&None).clone()
     }
 }
 
@@ -89,10 +141,10 @@ pub fn load_process(proc: &mut Process, exec_path: &str) -> bool {
     // TODO: check if the segments are in userspace
     for ph in segments {
         let pages = utils::div_and_ceil(ph.p_filesz as usize, PAGE_SIZE_4KIB as usize);
-        let seg_start = VirtAddr::new(ph.p_vaddr - ph.p_vaddr % PAGE_SIZE_4KIB);
+        let seg_page_start = VirtAddr::new(ph.p_vaddr - ph.p_vaddr % PAGE_SIZE_4KIB);
         for i in 0..pages {
             let phys = phys::alloc();
-            let virt = VirtAddr::new(seg_start.get() + i as u64 * PAGE_SIZE_4KIB);
+            let virt = VirtAddr::new(seg_page_start.get() + i as u64 * PAGE_SIZE_4KIB);
 
             let mut flags = PageFlags::PRESENT | PageFlags::READ_WRITE | PageFlags::USER;
             if ph.p_flags & PF_W > 0 {
@@ -106,7 +158,7 @@ pub fn load_process(proc: &mut Process, exec_path: &str) -> bool {
         let file_seg_end = (ph.p_offset + ph.p_filesz) as usize;
 
         let seg_mem =
-            unsafe { slice::from_raw_parts_mut(seg_start.get() as *mut u8, ph.p_filesz as usize) };
+            unsafe { slice::from_raw_parts_mut(ph.p_vaddr as *mut u8, ph.p_filesz as usize) };
         seg_mem.copy_from_slice(&buff[file_seg_start..file_seg_end]);
 
         println!("{:?}", ph);
