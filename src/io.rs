@@ -10,7 +10,7 @@ unsafe impl Send for Writer {}
 impl fmt::Write for Writer {
     fn write_str(&mut self, s: &str) -> fmt::Result {
         if cfg!(serial_module)
-        /*&& drivers::is_loaded("serial")*/
+        && drivers::is_loaded("serial")
         {
             for c in s.bytes() {
                 drivers::serial::write(c);

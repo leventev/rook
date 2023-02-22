@@ -1,15 +1,20 @@
-use crate::arch::x86_64::{
+use alloc::sync::Arc;
+use spin::Mutex;
+
+use crate::{arch::x86_64::{
     self,
     idt::{self, IDTTypeAttr},
-};
+}, scheduler::{self, proc::{get_process, Process}}};
+
+type SyscallCallback = fn(proc: Arc<Mutex<Process>>, args: [u64; 6]) -> u64;
 
 pub struct Syscall {
     name: &'static str,
-    callback: fn(args: [u64; 6]) -> u64,
+    callback: SyscallCallback,
 }
 
 impl Syscall {
-    const fn new(name: &'static str, callback: fn(args: [u64; 6]) -> u64) -> Syscall {
+    const fn new(name: &'static str, callback: SyscallCallback) -> Syscall {
         Syscall { name, callback }
     }
 }
@@ -29,11 +34,18 @@ fn handle_syscall(
     let syscall_table_idx = syscall_no as usize;
     assert!(syscall_table_idx < SYSCALL_TABLE.len());
 
+    let process = {
+        let thread_lock = scheduler::get_current_thread();
+        let current_thread = thread_lock.lock();
+        assert!(current_thread.user_thread);
+        get_process(current_thread.process_id).unwrap()
+    };
+
     let syscall = &SYSCALL_TABLE[syscall_table_idx];
     let args = [arg1, arg2, arg3, arg4, arg5, arg6];
     println!("handle syscall {}", syscall.name);
 
-    let res = (syscall.callback)(args);
+    let res = (syscall.callback)(process, args);
     println!("syscall return {:#x}", res);
     res
 }

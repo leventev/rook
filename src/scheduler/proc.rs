@@ -9,7 +9,12 @@ use crate::{
     scheduler::{create_user_thread, run_user_thread},
     utils,
 };
-use alloc::{boxed::Box, slice, sync::Weak, vec::Vec};
+use alloc::{
+    boxed::Box,
+    slice,
+    sync::{Arc, Weak},
+    vec::Vec,
+};
 use elf::{
     abi::{PF_W, PT_LOAD},
     endian::LittleEndian,
@@ -20,7 +25,7 @@ use spin::Mutex;
 use super::Thread;
 
 pub struct Process {
-    pid: usize,
+    pub pid: usize,
     main_thread: Weak<Mutex<Thread>>,
     pml4_phys: PhysAddr,
     file_descriptors: Vec<Option<Weak<FileDescriptor>>>,
@@ -29,17 +34,15 @@ pub struct Process {
 
 unsafe impl Send for Process {}
 
-static PROCESSES: Mutex<Vec<Option<Process>>> = Mutex::new(Vec::new());
+static PROCESSES: Mutex<Vec<Option<Arc<Mutex<Process>>>>> = Mutex::new(Vec::new());
 
 impl Process {
     fn new() -> Process {
-        let pid = get_new_pid();
-
         let pml4 = phys::alloc();
         virt::copy_pml4_higher_half_entries(pml4, get_current_pml4());
 
         Process {
-            pid,
+            pid: 0,
             main_thread: create_user_thread(),
             pml4_phys: pml4,
             file_descriptors: Vec::with_capacity(8),
@@ -94,16 +97,20 @@ impl Process {
     }
 }
 
-fn get_new_pid() -> usize {
+fn add_process(mut proc: Process) -> usize {
     let mut processes = PROCESSES.lock();
     let pid = match processes.iter().position(Option::is_none) {
         Some(x) => x,
         None => {
             let old_len = processes.len();
-            processes.resize_with(old_len * 2, || None);
+            let new_len = if old_len == 0 { 8 } else { old_len * 2 };
+            processes.resize_with(new_len, || None);
             old_len
         }
     } + 1;
+
+    proc.pid = pid;
+    processes[pid - 1] = Some(Arc::new(Mutex::new(proc)));
 
     pid
 }
@@ -114,13 +121,11 @@ pub fn load_process(proc: &mut Process, exec_path: &str) -> bool {
 
     let mut fd = fs::open(exec_path).unwrap();
     let info = fd.file_info().unwrap();
-    println!("{} {}", info.size, info.blocks_used);
 
     // TODO: perhaps we can parse the ELF header without reading the whole file
     // and instead later reading the file to userspace
     // TODO: don't unnecessarily zero the memory
     let mut buff: Box<[u8]> = vec![0; info.size].into_boxed_slice();
-    println!("buff.len: {} info.size: {}", buff.len(), info.size);
     if fd.read(info.size, &mut buff[..]).is_err() {
         return false;
     }
@@ -160,9 +165,6 @@ pub fn load_process(proc: &mut Process, exec_path: &str) -> bool {
         let seg_mem =
             unsafe { slice::from_raw_parts_mut(ph.p_vaddr as *mut u8, ph.p_filesz as usize) };
         seg_mem.copy_from_slice(&buff[file_seg_start..file_seg_end]);
-
-        println!("{:?}", ph);
-        println!("{:#x}", ph.p_vaddr);
     }
 
     const STACK_BASE: u64 = 0xfffffd8000000000;
@@ -184,18 +186,26 @@ pub fn load_process(proc: &mut Process, exec_path: &str) -> bool {
     // TODO: validate
     main_thread.user_regs.rip = elf_file.ehdr.e_entry;
     main_thread.user_regs.rsp = stack_bottom;
+    main_thread.process_id = proc.pid;
 
     true
 }
 
 pub fn load_base_process(exec_path: &str) {
-    let mut proc = Process::new();
-    println!("PID {}", proc.pid);
+    let pid = add_process(Process::new());
+    let proc_lock = get_process(pid).unwrap();
+    let mut proc = proc_lock.lock();
+
+    let main_thread_id = { proc.main_thread.upgrade().unwrap().lock().id };
 
     if !load_process(&mut proc, exec_path) {
         panic!("failed to load base process");
     }
 
-    let main_thread_id = { proc.main_thread.upgrade().unwrap().lock().id };
     run_user_thread(main_thread_id);
+}
+
+pub fn get_process(pid: usize) -> Option<Arc<Mutex<Process>>> {
+    let processes = PROCESSES.lock();
+    processes[pid - 1].clone()
 }

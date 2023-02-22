@@ -1,10 +1,13 @@
 use core::str::from_utf8;
 
-use alloc::slice;
+use alloc::{slice, sync::Arc};
+use spin::Mutex;
 
-use crate::framebuffer;
+use crate::{framebuffer, scheduler::proc::Process};
 
-pub fn sys_write(args: [u64; 6]) -> u64 {
+pub fn sys_write(proc: Arc<Mutex<Process>>, args: [u64; 6]) -> u64 {
+    let p = proc.lock();
+
     println!("{:?}", args);
     let fd = args[0];
     let len = args[2];

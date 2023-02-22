@@ -171,12 +171,15 @@ pub enum ThreadState {
 }
 
 pub struct Thread {
-    id: ThreadID,
-    state: ThreadState,
-    user_thread: bool,
-    stack_bottom: u64,
-    kernel_regs: RegisterState,
-    user_regs: RegisterState,
+    pub id: ThreadID,
+    pub state: ThreadState,
+    pub user_thread: bool,
+
+    /// Only set when user_thread is true
+    pub process_id: usize,
+    pub stack_bottom: u64,
+    pub kernel_regs: RegisterState,
+    pub user_regs: RegisterState,
 }
 
 struct Scheduler {
@@ -219,6 +222,7 @@ impl Scheduler {
         Thread {
             id: tid,
             state: ThreadState::None,
+            process_id: 0,
             kernel_regs: RegisterState::kernel_new(),
             stack_bottom: Self::get_kernel_stack(tid) + KERNEL_STACK_SIZE_PER_THREAD,
             user_regs: RegisterState::user_new(),
@@ -259,6 +263,7 @@ impl Scheduler {
         Thread {
             id: tid,
             state: ThreadState::None,
+            process_id: 0,
             stack_bottom: Self::get_kernel_stack(tid),
             kernel_regs: RegisterState::user_new(),
             user_regs: RegisterState::user_new(),
@@ -612,6 +617,17 @@ pub fn remove_current_thread() {
 pub fn current_tid() -> ThreadID {
     let sched = SCHEDULER.lock();
     *sched.current_queue.front().unwrap()
+}
+
+pub fn get_thread(tid: ThreadID) -> Option<Arc<Mutex<Thread>>> {
+    let mut sched = SCHEDULER.lock();
+    sched.get_thread(tid)
+}
+
+pub fn get_current_thread() -> Arc<Mutex<Thread>> {
+    let mut sched = SCHEDULER.lock();
+    let tid = *sched.current_queue.front().unwrap();
+    sched.get_thread(tid).unwrap()
 }
 
 #[no_mangle]
