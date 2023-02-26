@@ -1,6 +1,6 @@
 use alloc::fmt;
 
-#[derive(PartialEq, Clone, Copy)]
+#[derive(PartialEq, Clone, Copy, Debug)]
 pub struct FSInode(pub u64);
 
 impl FSInode {

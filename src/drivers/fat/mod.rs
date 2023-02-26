@@ -571,7 +571,7 @@ fn create_fs(part: Weak<Partition>) -> Result<Box<dyn FileSystemInner>, FileSyst
 pub fn init() -> bool {
     fs::register_fs_skeleton(FileSystemSkeleton {
         new: create_fs,
-        name: "FAT",
+        name: "fat32",
     })
     .is_ok()
 }

@@ -28,7 +28,7 @@ pub struct Process {
     pub pid: usize,
     main_thread: Weak<Mutex<Thread>>,
     pml4_phys: PhysAddr,
-    file_descriptors: Vec<Option<Weak<FileDescriptor>>>,
+    file_descriptors: Vec<Option<Arc<FileDescriptor>>>,
     file_descriptors_allocated: usize,
 }
 
@@ -50,7 +50,7 @@ impl Process {
         }
     }
 
-    pub fn new_fd(&mut self, hint: Option<usize>, file_descriptor: Weak<FileDescriptor>) -> usize {
+    pub fn new_fd(&mut self, hint: Option<usize>, file_descriptor: Box<FileDescriptor>) -> usize {
         assert!(self.file_descriptors_allocated <= self.file_descriptors.capacity());
 
         let fd = match hint {
@@ -60,7 +60,7 @@ impl Process {
                 while size < n {
                     size *= 2;
                 }
-                self.file_descriptors.resize(size, None);
+                self.file_descriptors.resize_with(size, || None);
                 n
             }
             None => {
@@ -68,7 +68,7 @@ impl Process {
                     // if there is not enough space, double the vector size
                     let old_size = self.file_descriptors.capacity();
                     let size = old_size * 2;
-                    self.file_descriptors.resize(size, None);
+                    self.file_descriptors.resize_with(size, || None);
 
                     old_size
                 } else {
@@ -81,7 +81,7 @@ impl Process {
             }
         };
 
-        self.file_descriptors[fd] = Some(file_descriptor);
+        self.file_descriptors[fd] = Some(Arc::from(file_descriptor));
         self.file_descriptors_allocated += 1;
         fd
     }
@@ -92,7 +92,7 @@ impl Process {
         self.file_descriptors[fd] = None;
     }
 
-    pub fn get_fd(&self, fd: usize) -> Option<Weak<FileDescriptor>> {
+    pub fn get_fd(&self, fd: usize) -> Option<Arc<FileDescriptor>> {
         self.file_descriptors.get(fd).unwrap_or(&None).clone()
     }
 }
@@ -195,6 +195,11 @@ pub fn load_base_process(exec_path: &str) {
     let pid = add_process(Process::new());
     let proc_lock = get_process(pid).unwrap();
     let mut proc = proc_lock.lock();
+
+    let console_fd = fs::open("/dev/console").expect("Failed to open /dev/console");
+
+    let fd = proc.new_fd(Some(0), console_fd);
+    assert!(fd == 0);
 
     let main_thread_id = { proc.main_thread.upgrade().unwrap().lock().id };
 

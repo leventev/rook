@@ -27,8 +27,9 @@ mod scheduler;
 mod syscall;
 mod time;
 mod utils;
+mod console;
 
-use alloc::{slice, string::String};
+use alloc::slice;
 use arch::x86_64::gdt;
 use limine::{
     LimineBootTimeRequest, LimineFramebufferRequest, LimineHhdmRequest, LimineMemmapRequest,
@@ -37,7 +38,7 @@ use limine::{
 use crate::{
     arch::x86_64::{idt, pic, stacktrace},
     mm::{virt::HDDM_VIRT_START, VirtAddr},
-    scheduler::proc,
+    scheduler::proc, fs::devfs,
 };
 
 static MMAP_INFO: LimineMemmapRequest = LimineMemmapRequest::new(0);
@@ -133,7 +134,10 @@ fn main_init_thread() {
     fs::init();
 
     let part = blk::get_partition(1, 0, 0).unwrap();
-    fs::mount(String::from("/"), part, "FAT").unwrap();
+    fs::mount("/", part, "fat32").unwrap();
+
+    devfs::init();
+    console::init();
 
     // we have to initialize the font after kalloc has been initialized
     framebuffer::init_font();

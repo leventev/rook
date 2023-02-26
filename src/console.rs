@@ -1,0 +1,35 @@
+use alloc::{boxed::Box, string::String};
+
+use crate::fs::devfs::{self, DeviceOperations};
+
+const ALTERNATE_TTY_DEVICE_MAJOR: u16 = 5;
+
+struct Console {}
+
+impl DeviceOperations for Console {
+    fn read(
+        &mut self,
+        _minor: usize,
+        _offset: usize,
+        _buff: &mut [u8],
+        _size: usize,
+    ) -> Result<usize, crate::fs::FileSystemError> {
+        todo!()
+    }
+
+    fn write(
+        &mut self,
+        _minor: usize,
+        _offset: usize,
+        _buff: &mut [u8],
+        _size: usize,
+    ) -> Result<usize, crate::fs::FileSystemError> {
+        todo!()
+    }
+}
+
+pub fn init() {
+    devfs::register_devfs_node(&[String::from("console")], ALTERNATE_TTY_DEVICE_MAJOR, 1).unwrap();
+    devfs::register_devfs_node_operations(ALTERNATE_TTY_DEVICE_MAJOR, Box::new(Console {}))
+        .unwrap();
+}

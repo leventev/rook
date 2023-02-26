@@ -15,6 +15,7 @@ use crate::blk::Partition;
 use self::inode::FSInode;
 
 pub mod inode;
+pub mod devfs;
 
 #[derive(Debug)]
 pub enum FileSystemError {
@@ -207,9 +208,35 @@ impl VirtualFileSystem {
         Ok(())
     }
 
+    fn mount_special(&mut self, path: &str, filesystem: FileSystem) -> Result<(), FileSystemError> {
+        if cfg!(vfs_debug) {
+            println!(
+                "VFS: attempting to mount {} filesystem to {} ",
+                filesystem.name, path
+            );
+        }
+
+        let parsed_path = match parse_path(path) {
+            Some(s) => s,
+            None => return Err(FileSystemError::InvalidPath),
+        };
+
+        if self.find_mount(&parsed_path).is_some() {
+            return Err(FileSystemError::AlreadyMounted);
+        }
+
+        self.mounts.push(Rc::new(MountPoint {
+            path: parsed_path,
+            fs: filesystem,
+            nodes: RefCell::new(BTreeMap::new()),
+        }));
+
+        Ok(())
+    }
+
     fn mount(
         &mut self,
-        path: String,
+        path: &str,
         part: Weak<Partition>,
         fs_name: &str,
     ) -> Result<(), FileSystemError> {
@@ -228,12 +255,12 @@ impl VirtualFileSystem {
             );
         }
 
-        let parsed_path = match parse_path(path.as_str()) {
+        let parsed_path = match parse_path(path) {
             Some(s) => s,
             None => return Err(FileSystemError::InvalidPath),
         };
 
-        if self.find_path_mount(&parsed_path).is_some() {
+        if self.find_mount(&parsed_path).is_some() {
             return Err(FileSystemError::AlreadyMounted);
         }
 
@@ -250,8 +277,8 @@ impl VirtualFileSystem {
 
     fn find_path_mount(&mut self, path: &Vec<String>) -> Option<Rc<MountPoint>> {
         let mounts = &mut self.mounts;
-        for i in (1..path.len() + 1).rev() {
-            let subpath = &path[1..i];
+        for i in (0..path.len() + 1).rev() {
+            let subpath = &path[0..i];
 
             let pos = mounts
                 .iter_mut()
@@ -264,6 +291,18 @@ impl VirtualFileSystem {
         }
 
         None
+    }
+
+    fn find_mount(&mut self, mount_path: &Vec<String>) -> Option<Rc<MountPoint>> {
+        let mounts = &mut self.mounts;
+        let pos = mounts
+            .iter_mut()
+            .position(|mount| &mount.path[..] == mount_path);
+
+        match pos {
+            Some(idx) => return Some(self.mounts[idx].clone()),
+            None => None
+        }
     }
 
     fn open(&mut self, path: &str) -> Result<Box<FileDescriptor>, FileSystemError> {
@@ -322,7 +361,12 @@ fn parse_path(path: &str) -> Option<Vec<String>> {
     Some(path)
 }
 
-pub fn mount(path: String, part: Weak<Partition>, fs_name: &str) -> Result<(), FileSystemError> {
+pub fn mount_special(path: &str, filesystem: FileSystem) -> Result<(), FileSystemError> {
+    let mut vfs = VFS.write();
+    vfs.mount_special(path, filesystem)
+}
+
+pub fn mount(path: &str, part: Weak<Partition>, fs_name: &str) -> Result<(), FileSystemError> {
     let mut vfs = VFS.write();
     vfs.mount(path, part, fs_name)
 }
