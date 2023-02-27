@@ -28,7 +28,7 @@ pub struct Process {
     pub pid: usize,
     main_thread: Weak<Mutex<Thread>>,
     pml4_phys: PhysAddr,
-    file_descriptors: Vec<Option<Arc<FileDescriptor>>>,
+    file_descriptors: Vec<Option<Arc<Mutex<FileDescriptor>>>>,
     file_descriptors_allocated: usize,
 }
 
@@ -50,11 +50,22 @@ impl Process {
         }
     }
 
-    pub fn new_fd(&mut self, hint: Option<usize>, file_descriptor: Box<FileDescriptor>) -> usize {
+    pub fn new_fd(
+        &mut self,
+        hint: Option<usize>,
+        file_descriptor: Arc<Mutex<FileDescriptor>>,
+    ) -> Result<usize, ()> {
         assert!(self.file_descriptors_allocated <= self.file_descriptors.capacity());
 
         let fd = match hint {
             Some(n) => {
+                // check if the hint is already in use
+                if n < self.file_descriptors.len() {
+                    if self.file_descriptors[n].is_some() {
+                        return Err(());
+                    }
+                }
+
                 // if a hint was provided allocate enough space then return
                 let mut size = self.file_descriptors.capacity();
                 while size < n {
@@ -81,9 +92,19 @@ impl Process {
             }
         };
 
-        self.file_descriptors[fd] = Some(Arc::from(file_descriptor));
+        self.file_descriptors[fd] = Some(file_descriptor);
         self.file_descriptors_allocated += 1;
-        fd
+        Ok(fd)
+    }
+
+    // TODO: error
+    pub fn dup_fd(&mut self, hint: Option<usize>, fd: usize) -> Result<usize, ()> {
+        let file_desc = match self.file_descriptors[fd] {
+            Some(ref f) => Arc::clone(f),
+            None => return Err(()),
+        };
+
+        self.new_fd(hint, file_desc)
     }
 
     pub fn free_fd(&mut self, fd: usize) {
@@ -92,7 +113,7 @@ impl Process {
         self.file_descriptors[fd] = None;
     }
 
-    pub fn get_fd(&self, fd: usize) -> Option<Arc<FileDescriptor>> {
+    pub fn get_fd(&self, fd: usize) -> Option<Arc<Mutex<FileDescriptor>>> {
         self.file_descriptors.get(fd).unwrap_or(&None).clone()
     }
 }
@@ -145,7 +166,7 @@ pub fn load_process(proc: &mut Process, exec_path: &str) -> bool {
     switch_pml4(proc.pml4_phys);
     // TODO: check if the segments are in userspace
     for ph in segments {
-        let pages = utils::div_and_ceil(ph.p_filesz as usize, PAGE_SIZE_4KIB as usize);
+        let pages = utils::div_and_ceil(ph.p_memsz as usize, PAGE_SIZE_4KIB as usize);
         let seg_page_start = VirtAddr::new(ph.p_vaddr - ph.p_vaddr % PAGE_SIZE_4KIB);
         for i in 0..pages {
             let phys = phys::alloc();
@@ -162,9 +183,19 @@ pub fn load_process(proc: &mut Process, exec_path: &str) -> bool {
         let file_seg_start = ph.p_offset as usize;
         let file_seg_end = (ph.p_offset + ph.p_filesz) as usize;
 
-        let seg_mem =
+        let file_seg_mem =
             unsafe { slice::from_raw_parts_mut(ph.p_vaddr as *mut u8, ph.p_filesz as usize) };
-        seg_mem.copy_from_slice(&buff[file_seg_start..file_seg_end]);
+        file_seg_mem.copy_from_slice(&buff[file_seg_start..file_seg_end]);
+
+        if ph.p_memsz != ph.p_filesz {
+            let mem_file_size_diff = (ph.p_memsz - ph.p_filesz) as usize;
+            let start = (ph.p_vaddr + ph.p_filesz) as *mut u8;
+
+            let seg_mem = unsafe { slice::from_raw_parts_mut(start, mem_file_size_diff) };
+            for i in 0..mem_file_size_diff {
+                seg_mem[i] = 0;
+            }
+        }
     }
 
     const STACK_BASE: u64 = 0xfffffd8000000000;
@@ -196,10 +227,22 @@ pub fn load_base_process(exec_path: &str) {
     let proc_lock = get_process(pid).unwrap();
     let mut proc = proc_lock.lock();
 
+    // open console
     let console_fd = fs::open("/dev/console").expect("Failed to open /dev/console");
 
-    let fd = proc.new_fd(Some(0), console_fd);
+    // stdin
+    let fd = proc
+        .new_fd(Some(0), Arc::new(Mutex::new(*console_fd)))
+        .unwrap();
     assert!(fd == 0);
+
+    // stdout
+    let fd = proc.dup_fd(None, fd).unwrap();
+    assert!(fd == 1);
+
+    // stderr
+    let fd = proc.dup_fd(None, fd).unwrap();
+    assert!(fd == 2);
 
     let main_thread_id = { proc.main_thread.upgrade().unwrap().lock().id };
 
