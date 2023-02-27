@@ -52,6 +52,31 @@ impl KernelAllocatorInner {
         unsafe { (KERNEL_HEAP_START.get() as *mut Node).as_mut().unwrap() }
     }
 
+    fn heap_end(&self) -> VirtAddr {
+        VirtAddr::new(KERNEL_HEAP_START.get() + self.current_size as u64)
+    }
+
+    fn extend_heap(&mut self, min_size: usize) -> usize {
+        let mut size = KERNEL_HEAP_BASE_SIZE;
+        while size < min_size {
+            size *= 2;
+        }
+
+        let pages = size / 4096;
+        for i in 0..pages {
+            let virt = self.heap_end() + VirtAddr(i as u64 * 4096);
+            let phys = phys::alloc();
+            virt::map_4kib(
+                virt,
+                phys,
+                PageFlags::READ_WRITE | PageFlags::PRESENT,
+                false,
+            );
+        }
+
+        size
+    }
+
     ///
     fn get_free_region(&mut self, size: usize, align: usize) -> Option<usize> {
         const MIN_SIZE: usize = core::mem::size_of::<Node>() + MINIMUM_REGION_SIZE;
@@ -63,6 +88,17 @@ impl KernelAllocatorInner {
         let mut has_next = true;
 
         while has_next {
+            let heap_end = self.heap_end();
+            let current_addr = current as *const _ as u64;
+            //println!("{} {:#x}", heap_end, current_addr);
+            assert!(heap_end.get() >= current_addr);
+            // extend heap when we reach the end of the heap
+            if heap_end.get() == current_addr {
+                let extended = self.extend_heap(size);
+                current.size = extended - core::mem::size_of::<Node>();
+                current.allocated = false;
+            }
+
             assert_ne!(current.size, 0);
             if current.allocated || current.size < size {
                 let next = current.next();
@@ -159,7 +195,7 @@ impl KernelAllocatorInner {
 
         let head = KernelAllocatorInner::head();
         head.allocated = false;
-        head.size = self.current_size;
+        head.size = self.current_size - core::mem::size_of::<Node>();
     }
 }
 
