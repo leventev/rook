@@ -113,10 +113,21 @@ impl VFSNode {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FileDescriptor {
     pub vnode: Rc<VFSNode>,
     pub offset: usize,
+}
+
+impl Drop for FileDescriptor {
+    fn drop(&mut self) {
+        let strong_count = Rc::strong_count(&self.vnode);
+        // not sure if this is the best way to do this but its fine for now
+        // 2 = hashmap and self
+        if strong_count == 2 {
+            // TODO: remove
+        }
+    }
 }
 
 #[derive(Clone, Copy)]

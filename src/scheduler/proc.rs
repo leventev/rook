@@ -102,7 +102,10 @@ impl Process {
     // TODO: error
     pub fn dup_fd(&mut self, hint: Option<usize>, fd: usize) -> Result<usize, ()> {
         let file_desc = match self.file_descriptors[fd] {
-            Some(ref f) => Arc::clone(f),
+            Some(ref f) => {
+                let val = Mutex::new(((**f).lock()).clone());
+                Arc::new(val)
+            }
             None => return Err(()),
         };
 

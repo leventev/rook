@@ -121,3 +121,23 @@ fn openat(
 
     Ok(fd)
 }
+
+pub fn sys_close(proc: Arc<Mutex<Process>>, args: [u64; 6]) -> u64 {
+    let fd = args[0] as usize;
+    match close(proc, fd) {
+        Ok(()) => 0,
+        Err(err) => err.as_errno(),
+    }
+}
+
+fn close(proc: Arc<Mutex<Process>>, fd: usize) -> Result<(), SyscallIOError> {
+    let mut p = proc.lock();
+
+    if p.get_fd(fd).is_none() {
+        return Err(SyscallIOError::InvalidFD);
+    }
+
+    p.free_fd(fd);
+
+    Ok(())
+}

@@ -25,10 +25,11 @@ impl Syscall {
     }
 }
 
-static SYSCALL_TABLE: [Syscall; 3] = [
+static SYSCALL_TABLE: [Syscall; 4] = [
     Syscall::new("write", x86_64::syscall::io::sys_write),
     Syscall::new("read", x86_64::syscall::io::sys_read),
-    Syscall::new("openat", x86_64::syscall::io::sys_openat)
+    Syscall::new("openat", x86_64::syscall::io::sys_openat),
+    Syscall::new("close", x86_64::syscall::io::sys_close)
 ];
 
 #[no_mangle]
@@ -42,7 +43,6 @@ fn handle_syscall(
     syscall_no: u64,
 ) -> u64 {
     let syscall_table_idx = syscall_no as usize;
-    println!("{}", syscall_table_idx);
     assert!(syscall_table_idx < SYSCALL_TABLE.len());
 
     let process = {
