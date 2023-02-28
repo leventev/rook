@@ -1,4 +1,4 @@
-use core::cell::{Cell, RefCell};
+use core::{cell::{Cell, RefCell}, fmt::Debug};
 
 use alloc::{
     boxed::Box,
@@ -30,7 +30,7 @@ pub enum FileSystemError {
     IsDirectory,
 }
 
-pub trait FileSystemInner {
+pub trait FileSystemInner: Debug {
     // Opens a file, returns the inode
     fn open(&self, path: &[String]) -> Result<FSInode, FileSystemError>;
 
@@ -64,11 +64,13 @@ pub struct FileSystemSkeleton {
     pub name: &'static str,
 }
 
+#[derive(Debug)]
 pub struct FileSystem {
     name: &'static str,
     inner: Box<dyn FileSystemInner>,
 }
 
+#[derive(Debug)]
 struct MountPoint {
     path: Vec<String>,
     fs: FileSystem,
@@ -97,16 +99,24 @@ struct VirtualFileSystem {
     mounts: Vec<Rc<MountPoint>>,
 }
 
-struct VFSNode {
+#[derive(Debug)]
+pub struct VFSNode {
+    path: String,
     mount: Weak<MountPoint>,
-    fds_open: Cell<usize>,
     size: Cell<usize>,
     inode: FSInode,
 }
 
+impl VFSNode {
+    pub fn path(&self) -> &String {
+        &self.path
+    }
+}
+
+#[derive(Debug)]
 pub struct FileDescriptor {
-    vnode: Rc<VFSNode>,
-    offset: usize,
+    pub vnode: Rc<VFSNode>,
+    pub offset: usize,
 }
 
 #[derive(Clone, Copy)]
@@ -323,9 +333,9 @@ impl VirtualFileSystem {
             let inode = mount.fs.inner.open(&subpath)?;
 
             let n = VFSNode {
+                path: String::from(path),
                 mount: Rc::downgrade(&mount),
                 inode,
-                fds_open: Cell::new(0),
                 size: Cell::new(1234),
             };
 
@@ -338,7 +348,6 @@ impl VirtualFileSystem {
         let binding = mount.nodes.borrow();
         let node = binding.get(subpath).unwrap();
 
-        node.fds_open.set(node.fds_open.get() + 1);
         Ok(Box::new(FileDescriptor {
             vnode: Rc::clone(node),
             offset: 0,

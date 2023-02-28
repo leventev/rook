@@ -39,6 +39,7 @@ unsafe impl Send for DeviceFileSystemInner {}
 static DEVFS_INNER: Lazy<Mutex<DeviceFileSystemInner>> =
     Lazy::new(|| Mutex::new(DeviceFileSystemInner::new()));
 
+#[derive(Debug)]
 struct DeviceFileSystem {}
 
 impl DeviceFileSystemInner {

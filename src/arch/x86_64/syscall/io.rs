@@ -1,7 +1,13 @@
+use core::ffi::{c_char, CStr};
+
 use alloc::{slice, sync::Arc};
 use spin::Mutex;
 
-use crate::{errno, scheduler::proc::Process};
+use crate::{
+    fs,
+    posix::{errno, FileOpenFlags, FileOpenMode},
+    scheduler::proc::Process,
+};
 
 #[derive(Debug, Clone, Copy)]
 enum SyscallIOError {
@@ -74,4 +80,44 @@ fn read(
     let written = file_desc.read(len, buff).unwrap();
 
     Ok(written as u64)
+}
+
+pub fn sys_openat(proc: Arc<Mutex<Process>>, args: [u64; 6]) -> u64 {
+    let dirfd = args[0] as isize;
+    let pathname = args[1] as *const c_char;
+    let flags = FileOpenFlags::from_bits(args[2] as u32).unwrap();
+    let mode = FileOpenMode::from_bits(args[3] as u32).unwrap();
+
+    match openat(proc, dirfd, pathname, flags, mode) {
+        Ok(n) => n as u64,
+        Err(err) => err.as_errno(),
+    }
+}
+
+fn openat(
+    proc: Arc<Mutex<Process>>,
+    dirfd: isize,
+    pathname: *const c_char,
+    _flags: FileOpenFlags,
+    _mode: FileOpenMode,
+) -> Result<usize, SyscallIOError> {
+    // TODO: flags, mode
+    let mut p = proc.lock();
+
+    // TODO: validate path
+    let path = unsafe { CStr::from_ptr(pathname) }.to_str().unwrap();
+
+    let full_path = match p.get_full_path_from_dirfd(dirfd, path) {
+        Ok(path) => path,
+        Err(_) => return Err(SyscallIOError::InvalidFD),
+    };
+
+    // TODO: invalid path error
+    let file_desc = {
+        let desc = fs::open(full_path.as_str()).unwrap();
+        Arc::new(Mutex::new(*desc))
+    };
+    let fd = p.new_fd(None, file_desc).unwrap();
+
+    Ok(fd)
 }

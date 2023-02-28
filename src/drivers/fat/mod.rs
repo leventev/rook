@@ -111,6 +111,7 @@ struct DirectoryEntry {
     directory_cluster_index: usize,
 }
 
+#[derive(Debug)]
 struct FATFileSystem {
     partition: Weak<Partition>,
     lba_count: usize,

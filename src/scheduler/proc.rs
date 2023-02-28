@@ -6,12 +6,14 @@ use crate::{
         virt::{self, map_4kib, switch_pml4, PAGE_SIZE_4KIB},
         PhysAddr, VirtAddr,
     },
+    posix::AT_FCWD,
     scheduler::{create_user_thread, run_user_thread},
     utils,
 };
 use alloc::{
     boxed::Box,
     slice,
+    string::String,
     sync::{Arc, Weak},
     vec::Vec,
 };
@@ -115,6 +117,32 @@ impl Process {
 
     pub fn get_fd(&self, fd: usize) -> Option<Arc<Mutex<FileDescriptor>>> {
         self.file_descriptors.get(fd).unwrap_or(&None).clone()
+    }
+
+    /// Only possible error is an invalid fd
+    pub fn get_full_path_from_dirfd(&self, dirfd: isize, path: &str) -> Result<String, ()> {
+        if path.starts_with('/') {
+            // if the path is absolute we ignore the value of dirfd
+            Ok(String::from(path))
+        } else {
+            if dirfd == AT_FCWD {
+                todo!()
+            } else if dirfd < 0 {
+                return Err(());
+            };
+
+            let fd = dirfd as usize;
+            let file_lock = match self.get_fd(fd) {
+                Some(f) => f,
+                None => return Err(()),
+            };
+
+            let file_desc = file_lock.lock();
+
+            // TODO: faster way to use the base path
+            let base_path = file_desc.vnode.path();
+            Ok(format!("{}/{}", base_path, path))
+        }
     }
 }
 

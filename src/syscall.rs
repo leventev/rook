@@ -25,9 +25,10 @@ impl Syscall {
     }
 }
 
-static SYSCALL_TABLE: [Syscall; 2] = [
+static SYSCALL_TABLE: [Syscall; 3] = [
     Syscall::new("write", x86_64::syscall::io::sys_write),
     Syscall::new("read", x86_64::syscall::io::sys_read),
+    Syscall::new("openat", x86_64::syscall::io::sys_openat)
 ];
 
 #[no_mangle]
