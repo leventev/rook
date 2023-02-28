@@ -1,7 +1,7 @@
 use alloc::{slice, sync::Arc};
 use spin::Mutex;
 
-use crate::scheduler::proc::Process;
+use crate::{errno, scheduler::proc::Process};
 
 #[derive(Debug, Clone, Copy)]
 enum SyscallIOError {
@@ -10,7 +10,11 @@ enum SyscallIOError {
 
 impl SyscallIOError {
     fn as_errno(&self) -> u64 {
-        0
+        let val = match self {
+            SyscallIOError::InvalidFD => errno::EBADF,
+        };
+
+        (-val) as u64
     }
 }
 

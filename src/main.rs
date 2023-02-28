@@ -28,6 +28,7 @@ mod scheduler;
 mod syscall;
 mod time;
 mod utils;
+mod errno;
 
 use alloc::slice;
 use arch::x86_64::gdt;
