@@ -1,10 +1,16 @@
 use alloc::sync::Arc;
 use spin::Mutex;
 
-use crate::{arch::x86_64::{
-    self,
-    idt::{self, IDTTypeAttr},
-}, scheduler::{self, proc::{get_process, Process}}};
+use crate::{
+    arch::x86_64::{
+        self,
+        idt::{self, IDTTypeAttr},
+    },
+    scheduler::{
+        self,
+        proc::{get_process, Process},
+    },
+};
 
 type SyscallCallback = fn(proc: Arc<Mutex<Process>>, args: [u64; 6]) -> u64;
 
@@ -19,7 +25,10 @@ impl Syscall {
     }
 }
 
-static SYSCALL_TABLE: [Syscall; 1] = [Syscall::new("write", x86_64::syscall::io::sys_write)];
+static SYSCALL_TABLE: [Syscall; 2] = [
+    Syscall::new("write", x86_64::syscall::io::sys_write),
+    Syscall::new("read", x86_64::syscall::io::sys_read),
+];
 
 #[no_mangle]
 fn handle_syscall(

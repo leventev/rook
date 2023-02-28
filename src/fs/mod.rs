@@ -133,7 +133,7 @@ impl FileDescriptor {
         Ok(read)
     }
 
-    pub fn write(&mut self, size: usize, buff: &mut [u8]) -> Result<usize, FileSystemError> {
+    pub fn write(&mut self, size: usize, buff: &[u8]) -> Result<usize, FileSystemError> {
         if buff.len() != size {
             return Err(FileSystemError::InvalidBuffer);
         }
