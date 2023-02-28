@@ -17,6 +17,7 @@ extern crate alloc;
 mod io;
 mod arch;
 mod blk;
+mod console;
 mod dma;
 mod drivers;
 mod framebuffer;
@@ -27,7 +28,6 @@ mod scheduler;
 mod syscall;
 mod time;
 mod utils;
-mod console;
 
 use alloc::slice;
 use arch::x86_64::gdt;
@@ -36,9 +36,10 @@ use limine::{
 };
 
 use crate::{
-    arch::x86_64::{idt, pic, stacktrace, disable_interrupts},
+    arch::x86_64::{disable_interrupts, idt, pic, stacktrace},
+    fs::devfs,
     mm::{virt::HDDM_VIRT_START, VirtAddr},
-    scheduler::proc, fs::devfs,
+    scheduler::proc,
 };
 
 static MMAP_INFO: LimineMemmapRequest = LimineMemmapRequest::new(0);

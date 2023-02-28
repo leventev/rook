@@ -14,8 +14,8 @@ use crate::blk::Partition;
 
 use self::inode::FSInode;
 
-pub mod inode;
 pub mod devfs;
+pub mod inode;
 
 #[derive(Debug)]
 pub enum FileSystemError {
@@ -127,7 +127,10 @@ impl FileDescriptor {
 
         let mount = self.vnode.mount.upgrade().unwrap();
 
-        let read = mount.fs.inner.read(self.vnode.inode, self.offset, buff, size)?;
+        let read = mount
+            .fs
+            .inner
+            .read(self.vnode.inode, self.offset, buff, size)?;
         self.offset += read;
 
         Ok(read)
@@ -144,7 +147,10 @@ impl FileDescriptor {
 
         let mount = self.vnode.mount.upgrade().unwrap();
 
-        let read = mount.fs.inner.write(self.vnode.inode, self.offset, buff, size)?;
+        let read = mount
+            .fs
+            .inner
+            .write(self.vnode.inode, self.offset, buff, size)?;
         self.offset += read;
 
         Ok(read)
@@ -298,7 +304,7 @@ impl VirtualFileSystem {
 
         match pos {
             Some(idx) => return Some(self.mounts[idx].clone()),
-            None => None
+            None => None,
         }
     }
 

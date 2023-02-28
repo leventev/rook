@@ -11,7 +11,7 @@ pub trait DeviceOperations {
         &mut self,
         minor: u16,
         offset: usize,
-         buff: &mut [u8],
+        buff: &mut [u8],
         size: usize,
     ) -> Result<usize, FileSystemError>;
     fn write(
@@ -172,11 +172,9 @@ pub fn register_devfs_node(path: &[String], major: u16, minor: u16) -> Result<()
     let mut inner = DEVFS_INNER.lock();
 
     let parent_node = match inner.get_node(&path[..path.len() - 1]) {
-        Ok(n) => {
-            match n {
-                Some(n) => n,
-                None => return Err(DevFsError::InvalidPath),
-            }
+        Ok(n) => match n {
+            Some(n) => n,
+            None => return Err(DevFsError::InvalidPath),
         },
         Err(_) => return Err(DevFsError::InvalidPath),
     };

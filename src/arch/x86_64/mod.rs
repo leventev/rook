@@ -4,8 +4,8 @@ pub mod idt;
 pub mod paging;
 pub mod pic;
 pub mod stacktrace;
-pub mod tss;
 pub mod syscall;
+pub mod tss;
 
 use core::arch::asm;
 

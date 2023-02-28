@@ -2,7 +2,10 @@ use core::str::from_utf8;
 
 use alloc::{boxed::Box, string::String};
 
-use crate::{fs::devfs::{self, DeviceOperations}, framebuffer};
+use crate::{
+    framebuffer,
+    fs::devfs::{self, DeviceOperations},
+};
 
 const ALTERNATE_TTY_DEVICE_MAJOR: u16 = 5;
 
