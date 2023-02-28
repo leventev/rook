@@ -9,16 +9,16 @@ use super::{
 pub trait DeviceOperations {
     fn read(
         &mut self,
-        minor: usize,
+        minor: u16,
         offset: usize,
          buff: &mut [u8],
         size: usize,
     ) -> Result<usize, FileSystemError>;
     fn write(
         &mut self,
-        minor: usize,
+        minor: u16,
         offset: usize,
-        buff: &mut [u8],
+        buff: &[u8],
         size: usize,
     ) -> Result<usize, FileSystemError>;
 }
@@ -30,8 +30,8 @@ enum DeviceFileTreeNode {
 }
 
 struct DeviceFileSystemInner {
-    root_node: DeviceFileTreeNode,
-    major_operations: HashMap<u16, Box<dyn DeviceOperations>>,
+    pub root_node: DeviceFileTreeNode,
+    pub major_operations: HashMap<u16, Box<dyn DeviceOperations>>,
 }
 
 unsafe impl Send for DeviceFileSystemInner {}
@@ -90,12 +90,18 @@ impl FileSystemInner for DeviceFileSystem {
 
     fn write(
         &self,
-        _inode: FSInode,
-        _offset: usize,
-        _buff: &[u8],
-        _size: usize,
+        inode: FSInode,
+        offset: usize,
+        buff: &[u8],
+        size: usize,
     ) -> Result<usize, FileSystemError> {
-        todo!()
+        // TODO: check if inode is valid
+        let mut inner = DEVFS_INNER.lock();
+
+        let (major, minor) = inode_to_dev_number(inode);
+        let ops = inner.major_operations.get_mut(&major).unwrap();
+
+        ops.write(minor, offset, buff, size)
     }
 }
 
@@ -143,6 +149,12 @@ impl DeviceFileSystemInner {
 
 fn dev_number_to_inode(major: u16, minor: u16) -> FSInode {
     FSInode::new((major as u64) << 16 | minor as u64)
+}
+
+fn inode_to_dev_number(inode: FSInode) -> (u16, u16) {
+    let major = (inode.0 >> 16) & 0xFFF;
+    let minor = inode.0 & 0xFFFF;
+    (major as u16, minor as u16)
 }
 
 #[derive(Debug)]

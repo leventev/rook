@@ -36,7 +36,7 @@ use limine::{
 };
 
 use crate::{
-    arch::x86_64::{idt, pic, stacktrace},
+    arch::x86_64::{idt, pic, stacktrace, disable_interrupts},
     mm::{virt::HDDM_VIRT_START, VirtAddr},
     scheduler::proc, fs::devfs,
 };
@@ -150,6 +150,8 @@ fn main_init_thread() {
 
 #[panic_handler]
 fn rust_panic(info: &core::panic::PanicInfo) -> ! {
+    disable_interrupts();
+
     stacktrace::walk();
     println!("{}", info);
     hcf();

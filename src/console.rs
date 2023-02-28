@@ -1,6 +1,8 @@
+use core::str::from_utf8;
+
 use alloc::{boxed::Box, string::String};
 
-use crate::fs::devfs::{self, DeviceOperations};
+use crate::{fs::devfs::{self, DeviceOperations}, framebuffer};
 
 const ALTERNATE_TTY_DEVICE_MAJOR: u16 = 5;
 
@@ -9,7 +11,7 @@ struct Console {}
 impl DeviceOperations for Console {
     fn read(
         &mut self,
-        _minor: usize,
+        _minor: u16,
         _offset: usize,
         _buff: &mut [u8],
         _size: usize,
@@ -19,12 +21,14 @@ impl DeviceOperations for Console {
 
     fn write(
         &mut self,
-        _minor: usize,
+        _minor: u16,
         _offset: usize,
-        _buff: &mut [u8],
+        buff: &[u8],
         _size: usize,
     ) -> Result<usize, crate::fs::FileSystemError> {
-        todo!()
+        let str = from_utf8(buff).unwrap();
+        framebuffer::draw_text(str, 0, 0);
+        Ok(str.len())
     }
 }
 

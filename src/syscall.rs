@@ -32,6 +32,7 @@ fn handle_syscall(
     syscall_no: u64,
 ) -> u64 {
     let syscall_table_idx = syscall_no as usize;
+    println!("{}", syscall_table_idx);
     assert!(syscall_table_idx < SYSCALL_TABLE.len());
 
     let process = {

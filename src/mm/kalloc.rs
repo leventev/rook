@@ -90,7 +90,6 @@ impl KernelAllocatorInner {
         while has_next {
             let heap_end = self.heap_end();
             let current_addr = current as *const _ as u64;
-            //println!("{} {:#x}", heap_end, current_addr);
             assert!(heap_end.get() >= current_addr);
             // extend heap when we reach the end of the heap
             if heap_end.get() == current_addr {

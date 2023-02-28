@@ -105,7 +105,7 @@ struct VFSNode {
 }
 
 pub struct FileDescriptor {
-    node: Weak<VFSNode>,
+    vnode: Rc<VFSNode>,
     offset: usize,
 }
 
@@ -125,10 +125,9 @@ impl FileDescriptor {
             return Ok(0);
         }
 
-        let vnode = self.node.upgrade().unwrap();
-        let mount = vnode.mount.upgrade().unwrap();
+        let mount = self.vnode.mount.upgrade().unwrap();
 
-        let read = mount.fs.inner.read(vnode.inode, self.offset, buff, size)?;
+        let read = mount.fs.inner.read(self.vnode.inode, self.offset, buff, size)?;
         self.offset += read;
 
         Ok(read)
@@ -143,20 +142,18 @@ impl FileDescriptor {
             return Ok(0);
         }
 
-        let vnode = self.node.upgrade().unwrap();
-        let mount = vnode.mount.upgrade().unwrap();
+        let mount = self.vnode.mount.upgrade().unwrap();
 
-        let read = mount.fs.inner.write(vnode.inode, self.offset, buff, size)?;
+        let read = mount.fs.inner.write(self.vnode.inode, self.offset, buff, size)?;
         self.offset += read;
 
         Ok(read)
     }
 
     pub fn file_info(&self) -> Result<FileInfo, FileSystemError> {
-        let vnode = self.node.upgrade().unwrap();
-        let mount = vnode.mount.upgrade().unwrap();
+        let mount = self.vnode.mount.upgrade().unwrap();
 
-        mount.fs.inner.file_info(vnode.inode)
+        mount.fs.inner.file_info(self.vnode.inode)
     }
 }
 
@@ -337,7 +334,7 @@ impl VirtualFileSystem {
 
         node.fds_open.set(node.fds_open.get() + 1);
         Ok(Box::new(FileDescriptor {
-            node: Rc::downgrade(node),
+            vnode: Rc::clone(node),
             offset: 0,
         }))
     }

@@ -1,23 +1,40 @@
-use core::str::from_utf8;
-
 use alloc::{slice, sync::Arc};
 use spin::Mutex;
 
-use crate::{framebuffer, scheduler::proc::Process};
+use crate::scheduler::proc::Process;
+
+#[derive(Debug, Clone, Copy)]
+enum SyscallIOError {
+    InvalidFD
+}
+
+impl SyscallIOError {
+    fn as_errno(&self) -> u64 {
+        0
+    }
+}
 
 pub fn sys_write(proc: Arc<Mutex<Process>>, args: [u64; 6]) -> u64 {
-    let _p = proc.lock();
+    let fd = args[0] as usize;
+    let len = args[2] as usize;
+    let buff = unsafe { slice::from_raw_parts_mut(args[1] as *mut u8, len) };
 
-    println!("{:?}", args);
-    let _fd = args[0];
-    let len = args[2];
-    let buff = unsafe { slice::from_raw_parts(args[1] as *mut u8, len as usize) };
-    println!("{:#x}", args[1]);
+    match write(proc, fd, len, buff) {
+        Ok(n) => n,
+        Err(err) => err.as_errno()
+    }
+}
 
-    println!("buff: `{:?}`", buff);
+fn write(proc: Arc<Mutex<Process>>, fd: usize, len: usize, buff: &mut [u8]) -> Result<u64, SyscallIOError> {
+    let p = proc.lock();
+    let file_lock = match p.get_fd(fd) {
+        Some(f) => f,
+        None => return Err(SyscallIOError::InvalidFD)
+    };
 
-    let str = from_utf8(buff).unwrap();
-    framebuffer::draw_text(str, 0, 0);
+    let mut file_desc = file_lock.lock();
 
-    0
+    let written = file_desc.write(len, buff).unwrap();
+
+    Ok(written as u64)
 }
