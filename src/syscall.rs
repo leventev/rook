@@ -25,11 +25,13 @@ impl Syscall {
     }
 }
 
-static SYSCALL_TABLE: [Syscall; 4] = [
+static SYSCALL_TABLE: [Syscall; 6] = [
     Syscall::new("write", x86_64::syscall::io::sys_write),
     Syscall::new("read", x86_64::syscall::io::sys_read),
     Syscall::new("openat", x86_64::syscall::io::sys_openat),
-    Syscall::new("close", x86_64::syscall::io::sys_close)
+    Syscall::new("close", x86_64::syscall::io::sys_close),
+    Syscall::new("fstatat", x86_64::syscall::io::sys_fstatat),
+    Syscall::new("getpid", x86_64::syscall::proc::sys_getpid),
 ];
 
 #[no_mangle]

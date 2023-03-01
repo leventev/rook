@@ -141,3 +141,7 @@ fn close(proc: Arc<Mutex<Process>>, fd: usize) -> Result<(), SyscallIOError> {
 
     Ok(())
 }
+
+pub fn sys_fstatat(_proc: Arc<Mutex<Process>>, _args: [u64; 6]) -> u64 {
+    todo!()
+}
