@@ -28,6 +28,12 @@ use super::Thread;
 
 pub struct Process {
     pub pid: usize,
+    pub ppid: usize,
+    pub uid: usize,
+    pub euid: usize,
+    pub gid: usize,
+    pub egid: usize,
+
     main_thread: Weak<Mutex<Thread>>,
     pml4_phys: PhysAddr,
     file_descriptors: Vec<Option<Arc<Mutex<FileDescriptor>>>>,
@@ -45,6 +51,11 @@ impl Process {
 
         Process {
             pid: 0,
+            egid: 0,
+            euid: 0,
+            gid: 0,
+            ppid: 0,
+            uid: 0,
             main_thread: create_user_thread(),
             pml4_phys: pml4,
             file_descriptors: Vec::with_capacity(8),

@@ -147,7 +147,7 @@ fn main_init_thread() {
     syscall::init();
 
     println!("main init thread");
-    proc::load_base_process("/bin/test");
+    proc::load_base_process("/bin/dash");
 }
 
 #[panic_handler]
