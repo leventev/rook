@@ -178,7 +178,86 @@ fn add_process(mut proc: Process) -> usize {
     pid
 }
 
-pub fn load_process(proc: &mut Process, exec_path: &str) -> bool {
+fn setup_process_stack() -> u64 {
+    const STACK_BASE: u64 = 0xfffffd8000000000;
+    const STACK_SIZE: u64 = 4096 * 16; // 64 KiB
+    let pages = STACK_SIZE / 4096;
+    for i in 0..pages {
+        let virt = VirtAddr::new(STACK_BASE + i * 4096);
+        let phys = phys::alloc();
+        map_4kib(
+            virt,
+            phys,
+            PageFlags::READ_WRITE | PageFlags::USER | PageFlags::PRESENT,
+            false,
+        );
+    }
+
+    STACK_BASE + STACK_SIZE
+}
+
+unsafe fn write_strings_on_stack(stack: *mut u64, strs: &[&str]) -> *mut u64 {
+    const POINTER_SIZE: usize = core::mem::size_of::<usize>();
+
+    let mut string_stack = stack as *mut u8;
+    assert!(string_stack as usize % core::mem::size_of::<usize>() == 0);
+    for s in strs.iter().rev() {
+        let aligned_size = s.len() + POINTER_SIZE - (s.len() % POINTER_SIZE);
+        string_stack = string_stack.offset(-(aligned_size as isize));
+
+        let stack_str = slice::from_raw_parts_mut(string_stack, s.len());
+        stack_str.copy_from_slice(s.as_bytes());
+
+        let leftover_size = aligned_size - s.len();
+        if leftover_size > 0 {
+            let leftover_ptr = string_stack.offset(s.len() as isize);
+            let leftover_area = slice::from_raw_parts_mut(leftover_ptr, leftover_size);
+            for byte in leftover_area {
+                *byte = 0;
+            }
+        }
+    }
+
+    string_stack as *mut u64
+}
+
+unsafe fn write_string_table_on_stack(
+    strs: &[&str],
+    mut table_stack: *mut u64,
+    mut str_stack: u64,
+) -> *mut u64 {
+    const POINTER_SIZE: usize = core::mem::size_of::<usize>();
+
+    table_stack = table_stack.offset(-1);
+    *table_stack = 0; // array terminating NULL
+
+    for s in strs.iter().rev() {
+        let aligned_size = s.len() + POINTER_SIZE - (s.len() % POINTER_SIZE);
+        str_stack = str_stack - aligned_size as u64;
+
+        table_stack = table_stack.offset(-1);
+        *table_stack = str_stack;
+    }
+
+    table_stack
+}
+
+unsafe fn write_argv_envp(stack_bottom: u64, args: &[&str], envvars: &[&str]) -> (u64, u64) {
+    let mut stack = stack_bottom as *mut u64;
+    let envp_start = write_strings_on_stack(stack, envvars);
+    let envp_end = stack_bottom;
+
+    let argv_start = write_strings_on_stack(envp_start, args);
+    let argv_end = envp_start as u64;
+
+    stack = argv_start;
+    let envp = write_string_table_on_stack(envvars, stack, envp_end);
+    let argv = write_string_table_on_stack(args, envp, argv_end);
+
+    (argv as u64, envp as u64)
+}
+
+pub fn load_process(proc: &mut Process, exec_path: &str, args: &[&str], envvars: &[&str]) -> bool {
     let main_thread_lock = proc.main_thread.upgrade().unwrap();
     let mut main_thread = main_thread_lock.lock();
 
@@ -240,25 +319,20 @@ pub fn load_process(proc: &mut Process, exec_path: &str) -> bool {
         }
     }
 
-    const STACK_BASE: u64 = 0xfffffd8000000000;
-    const STACK_SIZE: u64 = 4096 * 16; // 64 KiB
-    let pages = STACK_SIZE / 4096;
-    for i in 0..pages {
-        let virt = VirtAddr::new(STACK_BASE + i * 4096);
-        let phys = phys::alloc();
-        map_4kib(
-            virt,
-            phys,
-            PageFlags::READ_WRITE | PageFlags::USER | PageFlags::PRESENT,
-            false,
-        );
-    }
+    let stack_bottom = setup_process_stack();
+    let (argv, envp) = unsafe { write_argv_envp(stack_bottom, args, envvars) };
 
-    let stack_bottom = STACK_BASE + STACK_SIZE;
+    // argc, 1st arg
+    main_thread.user_regs.rdi = args.len() as u64;
+    // argv, 2nd arg
+    main_thread.user_regs.rsi = argv;
+    // envp, 3rd arg
+    main_thread.user_regs.rdx = envp;
 
     // TODO: validate
     main_thread.user_regs.rip = elf_file.ehdr.e_entry;
-    main_thread.user_regs.rsp = stack_bottom;
+    main_thread.user_regs.rsp = argv;
+
     main_thread.process_id = proc.pid;
 
     true
@@ -288,7 +362,10 @@ pub fn load_base_process(exec_path: &str) {
 
     let main_thread_id = { proc.main_thread.upgrade().unwrap().lock().id };
 
-    if !load_process(&mut proc, exec_path) {
+    let argv = [exec_path.clone()];
+    let envp = [];
+
+    if !load_process(&mut proc, exec_path, &argv[..], &envp[..]) {
         panic!("failed to load base process");
     }
 
