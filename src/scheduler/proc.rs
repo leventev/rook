@@ -3,7 +3,7 @@ use crate::{
     fs::{self, FileDescriptor},
     mm::{
         phys,
-        virt::{self, map_4kib, switch_pml4, PAGE_SIZE_4KIB},
+        virt::{self, switch_pml4, PAGE_SIZE_4KIB},
         PhysAddr, VirtAddr,
     },
     posix::AT_FCWD,
@@ -18,13 +18,59 @@ use alloc::{
     vec::Vec,
 };
 use elf::{
-    abi::{PF_W, PT_LOAD},
+    abi::{PF_X, PT_LOAD},
     endian::LittleEndian,
     ElfBytes,
 };
 use spin::Mutex;
 
 use super::Thread;
+
+bitflags::bitflags! {
+    pub struct MappedRegionFlags: u64 {
+        const READ_WRITE = 1 << 0;
+        const ALLOC_ON_ACCESS = 1 << 1;
+        const EXECUTE = 1 << 2;
+    }
+}
+
+#[derive(Debug)]
+pub struct MappedRegion {
+    start: usize,
+    pages: usize,
+    end: usize,
+    flags: MappedRegionFlags,
+}
+
+impl MappedRegion {
+    const fn new(start: usize, pages: usize, flags: MappedRegionFlags) -> MappedRegion {
+        MappedRegion {
+            start,
+            pages,
+            end: start + pages * PAGE_SIZE_4KIB as usize,
+            flags,
+        }
+    }
+
+    fn page_flags(&self) -> PageFlags {
+        let mut flags = PageFlags::USER;
+        if self.flags.contains(MappedRegionFlags::READ_WRITE) {
+            flags |= PageFlags::READ_WRITE;
+        }
+
+        if self.flags.contains(MappedRegionFlags::ALLOC_ON_ACCESS) {
+            flags |= PageFlags::ALLOC_ON_ACCESS;
+        } else {
+            flags |= PageFlags::PRESENT;
+        }
+
+        flags
+    }
+
+    fn virt_addr(&self) -> VirtAddr {
+        VirtAddr::new(self.start as u64)
+    }
+}
 
 pub struct Process {
     pub pid: usize,
@@ -34,7 +80,9 @@ pub struct Process {
     pub gid: usize,
     pub egid: usize,
 
-    main_thread: Weak<Mutex<Thread>>,
+    mapped_regions: Vec<MappedRegion>,
+
+    pub main_thread: Weak<Mutex<Thread>>,
     pml4_phys: PhysAddr,
     file_descriptors: Vec<Option<Arc<Mutex<FileDescriptor>>>>,
     file_descriptors_allocated: usize,
@@ -56,11 +104,61 @@ impl Process {
             gid: 0,
             ppid: 0,
             uid: 0,
+            mapped_regions: Vec::new(),
             main_thread: create_user_thread(),
             pml4_phys: pml4,
             file_descriptors: Vec::with_capacity(8),
             file_descriptors_allocated: 0,
         }
+    }
+
+    // TODO: arch specific
+    fn map_region(&self, region: &MappedRegion) {
+        let vmm = virt::VIRTUAL_MEMORY_MANAGER.lock();
+
+        let addr_base = region.start as u64;
+        for i in 0..region.pages {
+            let virt = VirtAddr::new(addr_base + i as u64 * PAGE_SIZE_4KIB);
+            let phys = if region.flags.contains(MappedRegionFlags::ALLOC_ON_ACCESS) {
+                PhysAddr::zero()
+            } else {
+                phys::alloc()
+            };
+
+            let flags = region.page_flags();
+            vmm.map_4kib(self.pml4_phys, virt, phys, flags, false);
+        }
+    }
+
+    // TODO: error
+    pub fn add_region(
+        &mut self,
+        start_addr: usize,
+        pages: usize,
+        flags: MappedRegionFlags,
+    ) -> Result<(), ()> {
+        println!(
+            "add region {:#x} {:#x} pages {:?}",
+            start_addr, pages, flags
+        );
+        assert!(start_addr % 4096 == 0);
+
+        let end = start_addr + pages * PAGE_SIZE_4KIB as usize;
+        let region = self
+            .mapped_regions
+            .iter()
+            .find(|region| region.start < end && start_addr < region.end);
+
+        if region.is_some() {
+            return Err(());
+        }
+
+        // TODO: check for overlapping regions
+        let region = MappedRegion::new(start_addr, pages, flags);
+        self.map_region(&region);
+        self.mapped_regions.push(region);
+
+        Ok(())
     }
 
     pub fn new_fd(
@@ -178,24 +276,6 @@ fn add_process(mut proc: Process) -> usize {
     pid
 }
 
-fn setup_process_stack() -> u64 {
-    const STACK_BASE: u64 = 0xfffffd8000000000;
-    const STACK_SIZE: u64 = 4096 * 16; // 64 KiB
-    let pages = STACK_SIZE / 4096;
-    for i in 0..pages {
-        let virt = VirtAddr::new(STACK_BASE + i * 4096);
-        let phys = phys::alloc();
-        map_4kib(
-            virt,
-            phys,
-            PageFlags::READ_WRITE | PageFlags::USER | PageFlags::PRESENT,
-            false,
-        );
-    }
-
-    STACK_BASE + STACK_SIZE
-}
-
 unsafe fn write_strings_on_stack(stack: *mut u64, strs: &[&str]) -> *mut u64 {
     const POINTER_SIZE: usize = core::mem::size_of::<usize>();
 
@@ -258,6 +338,7 @@ unsafe fn write_argv_envp(stack_bottom: u64, args: &[&str], envvars: &[&str]) ->
 }
 
 pub fn load_process(proc: &mut Process, exec_path: &str, args: &[&str], envvars: &[&str]) -> bool {
+    println!("load process {}", exec_path);
     let main_thread_lock = proc.main_thread.upgrade().unwrap();
     let mut main_thread = main_thread_lock.lock();
 
@@ -287,19 +368,23 @@ pub fn load_process(proc: &mut Process, exec_path: &str, args: &[&str], envvars:
     switch_pml4(proc.pml4_phys);
     // TODO: check if the segments are in userspace
     for ph in segments {
-        let pages = utils::div_and_ceil(ph.p_memsz as usize, PAGE_SIZE_4KIB as usize);
-        let seg_page_start = VirtAddr::new(ph.p_vaddr - ph.p_vaddr % PAGE_SIZE_4KIB);
-        for i in 0..pages {
-            let phys = phys::alloc();
-            let virt = VirtAddr::new(seg_page_start.get() + i as u64 * PAGE_SIZE_4KIB);
+        println!("loading segment {} {}", ph.p_vaddr, ph.p_memsz);
 
-            let mut flags = PageFlags::PRESENT | PageFlags::READ_WRITE | PageFlags::USER;
-            if ph.p_flags & PF_W > 0 {
-                flags |= PageFlags::READ_WRITE;
-            }
+        let mut flags = MappedRegionFlags::empty();
+        /*if ph.p_flags & PF_W > 0 {
+            flags |= MappedRegionFlags::READ_WRITE;
+        }*/
+        // FIXME: remove READ_WRITE flag after we are done copying the memory from the file
+        flags |= MappedRegionFlags::READ_WRITE;
 
-            map_4kib(virt, phys, flags, true);
+        if ph.p_flags & PF_X > 0 {
+            flags |= MappedRegionFlags::EXECUTE;
         }
+
+        let seg_page_start = VirtAddr::new(ph.p_vaddr - ph.p_vaddr % PAGE_SIZE_4KIB);
+        let pages = utils::div_and_ceil(ph.p_memsz as usize, PAGE_SIZE_4KIB as usize);
+        proc.add_region(seg_page_start.get() as usize, pages, flags)
+            .unwrap();
 
         let file_seg_start = ph.p_offset as usize;
         let file_seg_end = (ph.p_offset + ph.p_filesz) as usize;
@@ -319,7 +404,18 @@ pub fn load_process(proc: &mut Process, exec_path: &str, args: &[&str], envvars:
         }
     }
 
-    let stack_bottom = setup_process_stack();
+    const STACK_BASE: u64 = 0xfffffd8000000000;
+    const STACK_SIZE_IN_PAGES: u64 = 16; // 64 KiB
+    const STACK_SIZE: u64 = STACK_SIZE_IN_PAGES * PAGE_SIZE_4KIB;
+
+    proc.add_region(
+        STACK_BASE as usize,
+        STACK_SIZE_IN_PAGES as usize,
+        MappedRegionFlags::READ_WRITE,
+    )
+    .unwrap();
+
+    let stack_bottom = STACK_BASE + STACK_SIZE;
     let (argv, envp) = unsafe { write_argv_envp(stack_bottom, args, envvars) };
 
     // argc, 1st arg

@@ -1,7 +1,10 @@
 use core::alloc::{GlobalAlloc, Layout};
 use spin::Mutex;
 
-use crate::{arch::x86_64::paging::PageFlags, utils};
+use crate::{
+    arch::x86_64::{get_current_pml4, paging::PageFlags},
+    utils,
+};
 
 use super::{
     phys,
@@ -57,6 +60,8 @@ impl KernelAllocatorInner {
     }
 
     fn extend_heap(&mut self, min_size: usize) -> usize {
+        let vmm = virt::VIRTUAL_MEMORY_MANAGER.lock();
+
         let mut size = KERNEL_HEAP_BASE_SIZE;
         while size < min_size {
             size *= 2;
@@ -66,7 +71,8 @@ impl KernelAllocatorInner {
         for i in 0..pages {
             let virt = self.heap_end() + VirtAddr(i as u64 * 4096);
             let phys = phys::alloc();
-            virt::map_4kib(
+            vmm.map_4kib(
+                get_current_pml4(),
                 virt,
                 phys,
                 PageFlags::READ_WRITE | PageFlags::PRESENT,
@@ -177,6 +183,8 @@ impl KernelAllocatorInner {
 
     pub fn init(&mut self) {
         assert!(!self.initialized);
+        let vmm = virt::VIRTUAL_MEMORY_MANAGER.lock();
+
         self.initialized = true;
         self.current_size = KERNEL_HEAP_BASE_SIZE;
 
@@ -184,7 +192,8 @@ impl KernelAllocatorInner {
         for i in 0..pages {
             let virt = KERNEL_HEAP_START + VirtAddr(i as u64 * 4096);
             let phys = phys::alloc();
-            virt::map_4kib(
+            vmm.map_4kib(
+                get_current_pml4(),
                 virt,
                 phys,
                 PageFlags::READ_WRITE | PageFlags::PRESENT,

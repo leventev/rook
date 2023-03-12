@@ -9,6 +9,7 @@ bitflags::bitflags! {
         const CACHE_DISABLE = 1 << 4;
         const ACCESSED = 1 << 5;
         const DIRTY = 1 << 6;
+        const ALLOC_ON_ACCESS = 1 << 9;
     }
 
     pub struct PML1Flags: u64 {
@@ -22,6 +23,7 @@ bitflags::bitflags! {
         const DIRTY = 1 << 6;
         const PAGE_ATTRIBUTE_TABLE = 1 << 7;
         const GLOBAL = 1 << 8;
+        const ALLOC_ON_ACCESS = 1 << 9;
     }
 
     pub struct PML2Flags: u64 {
@@ -34,6 +36,7 @@ bitflags::bitflags! {
         const ACCESSED = 1 << 5;
         const DIRTY = 1 << 6;
         const PAGE_SIZE = 1 << 7;
+        const ALLOC_ON_ACCESS = 1 << 9;
     }
 
     pub struct PML3Flags: u64 {
@@ -46,6 +49,7 @@ bitflags::bitflags! {
         const ACCESSED = 1 << 5;
         const DIRTY = 1 << 6;
         const PAGE_SIZE = 1 << 7;
+        const ALLOC_ON_ACCESS = 1 << 9;
     }
 
     pub struct PML4Flags: u64 {
@@ -57,6 +61,7 @@ bitflags::bitflags! {
         const CACHE_DISABLE = 1 << 4;
         const ACCESSED = 1 << 5;
         const DIRTY = 1 << 6;
+        const ALLOC_ON_ACCESS = 1 << 9;
     }
 }
 

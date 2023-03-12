@@ -4,6 +4,7 @@ use crate::{
     arch::x86_64::{
         self,
         gdt::{segment_selector, GDT_KERNEL_CODE, GDT_KERNEL_DATA, GDT_USER_CODE, GDT_USER_DATA},
+        get_current_pml4,
         paging::PageFlags,
     },
     mm::{
@@ -180,6 +181,8 @@ pub struct Thread {
     pub stack_bottom: u64,
     pub kernel_regs: RegisterState,
     pub user_regs: RegisterState,
+
+    pub in_kernelspace: bool,
 }
 
 struct Scheduler {
@@ -227,6 +230,7 @@ impl Scheduler {
             stack_bottom: Self::get_kernel_stack(tid) + KERNEL_STACK_SIZE_PER_THREAD,
             user_regs: RegisterState::user_new(),
             user_thread: false,
+            in_kernelspace: true,
         }
     }
 
@@ -268,6 +272,7 @@ impl Scheduler {
             kernel_regs: RegisterState::user_new(),
             user_regs: RegisterState::user_new(),
             user_thread: true,
+            in_kernelspace: false,
         }
     }
 
@@ -293,10 +298,10 @@ impl Scheduler {
         let thread_lock = self.get_thread(tid).unwrap();
         let mut thread = thread_lock.lock();
         // TODO: optimize this
-        if thread.user_thread {
-            thread.user_regs = regs;
-        } else {
+        if thread.in_kernelspace {
             thread.kernel_regs = regs;
+        } else {
+            thread.user_regs = regs;
         }
     }
 
@@ -507,6 +512,8 @@ pub fn init() {
     // interrupts should be disasbled when this is called
     let mut sched = SCHEDULER.lock();
 
+    let vmm = virt::VIRTUAL_MEMORY_MANAGER.lock();
+
     const ALLOC_AT_ONCE: usize = 128;
     let kernel_stack_space_size = MAX_TASKS as u64 * KERNEL_STACK_SIZE_PER_THREAD;
     let in_pages = kernel_stack_space_size / 4096;
@@ -520,7 +527,8 @@ pub fn init() {
             let phys = phys_start + PhysAddr::new(j as u64 * 4096);
             let virt =
                 KERNEL_THREAD_STACKS_START + VirtAddr::new((i * ALLOC_AT_ONCE + j) as u64 * 4096);
-            virt::map_4kib(
+            vmm.map_4kib(
+                get_current_pml4(),
                 virt,
                 phys,
                 PageFlags::PRESENT | PageFlags::READ_WRITE,
