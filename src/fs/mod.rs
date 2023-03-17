@@ -1,4 +1,7 @@
-use core::{cell::{Cell, RefCell}, fmt::Debug};
+use core::{
+    cell::{Cell, RefCell},
+    fmt::Debug,
+};
 
 use alloc::{
     boxed::Box,

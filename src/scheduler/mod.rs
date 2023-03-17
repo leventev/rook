@@ -6,6 +6,7 @@ use crate::{
         gdt::{segment_selector, GDT_KERNEL_CODE, GDT_KERNEL_DATA, GDT_USER_CODE, GDT_USER_DATA},
         get_current_pml4,
         paging::PageFlags,
+        Rflags,
     },
     mm::{
         phys,
@@ -70,6 +71,35 @@ pub struct RegisterState {
 }
 
 impl RegisterState {
+    pub const fn zero() -> RegisterState {
+        RegisterState {
+            rax: 0,
+            rbx: 0,
+            rcx: 0,
+            rdx: 0,
+            rsi: 0,
+            rdi: 0,
+            r8: 0,
+            r9: 0,
+            r10: 0,
+            r11: 0,
+            r12: 0,
+            r13: 0,
+            r14: 0,
+            r15: 0,
+            rbp: 0,
+            es: 0,
+            ds: 0,
+            fs: 0,
+            gs: 0,
+            rip: 0,
+            cs: 0,
+            rflags: 0,
+            rsp: 0,
+            ss: 0,
+        }
+    }
+
     fn kernel_new() -> RegisterState {
         RegisterState {
             rax: 0,
@@ -158,9 +188,29 @@ impl fmt::Display for RegisterState {
         let rsp: u64 = self.rsp;
         let ss: u64 = self.ss;
 
-        write!(f, "rax: {:#x} rbx: {:#x} rcx: {:#x} rdx: {:#x} rsi: {:#x} rdi: {:#x} r8: {:#x} r9: {:#x} r10: {:#x} r11: {:#x} r12: {:#x} r13: {:#x} r14: {:#x} r15: {:#x} rbp: {:#x} es: {:#x} ds: {:#x} fs: {:#x} gs: {:#x} rip: {:#x} cs: {:#x} rflags: {:#x} rsp: {:#x} ss: {:#x}",
-        rax, rbx, rcx, rdx, rsi, rdi, r8, r9, r10, r11, r12, r13, r14, r15, rbp,
-        es, ds, fs, gs, rip, cs, rflags, rsp, ss)
+        writeln!(
+            f,
+            "RAX={rax:0>16x} RBX={rbx:0>16x} RCX={rcx:0>16x} RDX={rdx:0>16x}"
+        )?;
+        writeln!(
+            f,
+            "RSI={rsi:0>16x} RDI={rdi:0>16x}  R8={r8:0>16x}  R9={r9:0>16x}"
+        )?;
+        writeln!(
+            f,
+            "R10={r10:0>16x} R11={r11:0>16x} R12={r12:0>16x} R13={r13:0>16x}"
+        )?;
+        writeln!(f, "R14={r14:0>16x} R15={r15:0>16x}")?;
+        writeln!(f, "RIP={rip:0>16x} RBP={rbp:0>16x} RSP={rsp:0>16x}")?;
+        writeln!(
+            f,
+            "RFLAGS={rflags:0>16x}({:?})",
+            Rflags::from_bits(rflags).unwrap()
+        )?;
+        write!(
+            f,
+            "ES={es:0>4x} DS={ds:0>4x} FS={fs:0>4x} GS={gs:0>4x} SS={ss:0>4x} CS={cs:0>4x}"
+        )
     }
 }
 
@@ -532,7 +582,6 @@ pub fn init() {
                 virt,
                 phys,
                 PageFlags::PRESENT | PageFlags::READ_WRITE,
-                false,
             );
         }
     }

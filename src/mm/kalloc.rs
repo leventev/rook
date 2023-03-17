@@ -76,7 +76,6 @@ impl KernelAllocatorInner {
                 virt,
                 phys,
                 PageFlags::READ_WRITE | PageFlags::PRESENT,
-                false,
             );
         }
 
@@ -197,7 +196,6 @@ impl KernelAllocatorInner {
                 virt,
                 phys,
                 PageFlags::READ_WRITE | PageFlags::PRESENT,
-                false,
             );
         }
 

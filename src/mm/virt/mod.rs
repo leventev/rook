@@ -1,5 +1,5 @@
 use crate::arch::x86_64::paging::{PML1Flags, PML2Flags, PML3Flags, PML4Flags, PageFlags};
-use crate::arch::x86_64::{get_current_pml4, set_cr3};
+use crate::arch::x86_64::{flush_tlb_page, get_current_pml4, set_cr3};
 use crate::mm::{PhysAddr, VirtAddr};
 use alloc::slice;
 use spin::{Mutex, RwLock};
@@ -56,7 +56,6 @@ impl VirtualMemoryManager {
         phys: PhysAddr,
         flags: PageFlags,
         page_2mb: bool,
-        allow_already_mapped: bool,
     ) {
         assert!(self.initialized);
         assert!(virt.get() % 4096 == 0);
@@ -76,32 +75,16 @@ impl VirtualMemoryManager {
                 virt.pml2_index(),
             );
 
-            let page = self.get_pml2(pml2_table_phys, pml2_index);
-            if page.is_some() {
-                if allow_already_mapped {
-                    return;
-                } else {
-                    panic!("Trying to map already mapped page! {}", virt);
-                }
-            }
-
             self.map_pml2(pml2_table_phys, pml2_index, phys, pml2_flags);
         } else {
             let (pml2_flags, pml2_index) = (flags.to_plm2_flags(), virt.pml2_index());
             let pml1_table_phys = self.get_or_map_pml2(pml2_table_phys, pml2_index, pml2_flags);
 
             let (pml1_flags, pml1_index) = (flags.to_plm1_flags(), virt.pml1_index());
-            let page = self.get_pml1(pml1_table_phys, pml1_index);
-            if page.is_some() {
-                if allow_already_mapped {
-                    return;
-                } else {
-                    panic!("Trying to map already mapped page! {}", virt);
-                }
-            }
-
             self.map_pml1(pml1_table_phys, pml1_index, phys, pml1_flags);
         }
+
+        flush_tlb_page(virt.get());
 
         if cfg!(vmm_debug) {
             println!(
@@ -139,12 +122,18 @@ impl VirtualMemoryManager {
 
         self.map_pml1(pml1.0, pml1_idx, PhysAddr::zero(), PML1Flags::NONE);
 
+        flush_tlb_page(virt.get());
+
         if cfg!(vmm_debug) {
             println!("VMM: unmapped Virt {}", virt);
         }
     }
 
-    fn get_phys_from_virt(&self, pml4_phys: PhysAddr, virt: VirtAddr) -> PhysAddr {
+    pub fn get_page_entry_from_virt(
+        &self,
+        pml4_phys: PhysAddr,
+        virt: VirtAddr,
+    ) -> Option<(PhysAddr, PageFlags)> {
         let pml4_idx = virt.pml4_index();
         let pml3_idx = virt.pml3_index();
         let pml2_idx = virt.pml2_index();
@@ -152,12 +141,15 @@ impl VirtualMemoryManager {
 
         let offset = virt.get() % 4096;
 
-        let pml4 = self.get_pml4(pml4_phys, pml4_idx).unwrap();
-        let pml3 = self.get_pml4(pml4.0, pml3_idx).unwrap();
-        let pml2 = self.get_pml4(pml3.0, pml2_idx).unwrap();
-        let pml1 = self.get_pml1(pml2.0, pml1_idx).unwrap();
+        let pml4 = self.get_pml4(pml4_phys, pml4_idx)?;
+        let pml3 = self.get_pml3(pml4.0, pml3_idx)?;
+        let pml2 = self.get_pml2(pml3.0, pml2_idx)?;
+        let pml1 = self.get_pml1(pml2.0, pml1_idx)?;
 
-        PhysAddr::new(pml1.0.get() & 0xfffffffffffff000 + offset)
+        Some((
+            PhysAddr::new((pml1.0.get() & 0xfffffffffffff000) + offset),
+            PageFlags::from_bits(pml1.1.bits()).unwrap(),
+        ))
     }
 
     fn map_physical_address_space(&self) {
@@ -196,27 +188,13 @@ impl VirtualMemoryManager {
         *hddm_start = HDDM_VIRT_START;
     }
 
-    pub fn map_4kib(
-        &self,
-        pml4: PhysAddr,
-        virt: VirtAddr,
-        phys: PhysAddr,
-        flags: PageFlags,
-        allow_already_mapped: bool,
-    ) {
-        self.map(pml4, virt, phys, flags, false, allow_already_mapped);
+    pub fn map_4kib(&self, pml4: PhysAddr, virt: VirtAddr, phys: PhysAddr, flags: PageFlags) {
+        self.map(pml4, virt, phys, flags, false);
     }
 
     /// Maps a 2MiB page in memory
-    pub fn map_2mib(
-        &self,
-        pml4: PhysAddr,
-        virt: VirtAddr,
-        phys: PhysAddr,
-        flags: PageFlags,
-        allow_already_mapped: bool,
-    ) {
-        self.map(pml4, virt, phys, flags, true, allow_already_mapped);
+    pub fn map_2mib(&self, pml4: PhysAddr, virt: VirtAddr, phys: PhysAddr, flags: PageFlags) {
+        self.map(pml4, virt, phys, flags, true);
     }
 }
 
@@ -233,69 +211,7 @@ pub fn init(hhdm: u64) {
     let mut vmm = VIRTUAL_MEMORY_MANAGER.lock();
     vmm.init(VirtAddr(hhdm));
 }
-/*
-/// Maps a 4KiB page in memory
-pub fn map_4kib(virt: VirtAddr, phys: PhysAddr, flags: PageFlags, allow_already_mapped: bool) {
-    let vmm = VIRTUAL_MEMORY_MANAGER.lock();
-    let pml4 = get_current_pml4();
-    vmm.map(pml4, virt, phys, flags, false, allow_already_mapped);
-}
 
-/// Maps a 2MiB page in memory
-pub fn map_2mib(virt: VirtAddr, phys: PhysAddr, flags: PageFlags, allow_already_mapped: bool) {
-    let vmm = VIRTUAL_MEMORY_MANAGER.lock();
-    vmm.map(
-        get_current_pml4(),
-        virt,
-        phys,
-        flags,
-        true,
-        allow_already_mapped,
-    );
-}
-
-pub fn map_2mib_other(
-    pml4: PhysAddr,
-    virt: VirtAddr,
-    phys: PhysAddr,
-    flags: PageFlags,
-    allow_already_mapped: bool,
-) {
-    let vmm = VIRTUAL_MEMORY_MANAGER.lock();
-    vmm.map(pml4, virt, phys, flags, true, allow_already_mapped);
-}
-
-pub fn map_4kib_other(
-    pml4: PhysAddr,
-    virt: VirtAddr,
-    phys: PhysAddr,
-    flags: PageFlags,
-    allow_already_mapped: bool,
-) {
-    let vmm = VIRTUAL_MEMORY_MANAGER.lock();
-    vmm.map(pml4, virt, phys, flags, false, allow_already_mapped);
-}
-
-pub fn unmap(virt: VirtAddr) {
-    let vmm = VIRTUAL_MEMORY_MANAGER.lock();
-    vmm.unmap(get_current_pml4(), virt);
-}
-
-pub fn unmap_other(pml4: PhysAddr, virt: VirtAddr) {
-    let vmm = VIRTUAL_MEMORY_MANAGER.lock();
-    vmm.unmap(pml4, virt);
-}
-
-pub fn get_phys_from_virt(virt: VirtAddr) -> PhysAddr {
-    let vmm = VIRTUAL_MEMORY_MANAGER.lock();
-    vmm.get_phys_from_virt(get_current_pml4(), virt)
-}
-
-pub fn get_phys_from_virt_other(pml4: PhysAddr, virt: VirtAddr) -> PhysAddr {
-    let vmm = VIRTUAL_MEMORY_MANAGER.lock();
-    vmm.get_phys_from_virt(pml4, virt)
-}
-*/
 /// This function maps 512GiB into memory
 pub fn map_physical_address_space() {
     let vmm = VIRTUAL_MEMORY_MANAGER.lock();

@@ -26,6 +26,12 @@ x86_64_get_cr3:
     ret
 .end:
 
+global x86_64_get_cr2:function (x86_64_get_cr2.end - x86_64_get_cr2)
+x86_64_get_cr2:
+    mov rax, cr2
+    ret
+.end:
+
 extern GDT_DESCRIPTOR
 
 global load_gdt:function (load_gdt.end - load_gdt)

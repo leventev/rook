@@ -1,9 +1,11 @@
 use core::fmt;
 use spin::Mutex;
 
-use crate::{arch::x86_64, drivers};
+use crate::{arch::x86_64, drivers, time};
 
-struct Writer {}
+struct Writer {
+    newline: bool,
+}
 
 unsafe impl Send for Writer {}
 
@@ -11,7 +13,16 @@ impl fmt::Write for Writer {
     fn write_str(&mut self, s: &str) -> fmt::Result {
         if cfg!(serial_module) && drivers::is_loaded("serial") {
             for c in s.bytes() {
+                if self.newline {
+                    self.newline = false;
+                    self.write_fmt(format_args!("[{}]: ", time::elapsed()))?;
+                }
+
                 drivers::serial::write(c);
+
+                if c == b'\n' {
+                    self.newline = true;
+                }
             }
         }
 
@@ -19,7 +30,7 @@ impl fmt::Write for Writer {
     }
 }
 
-static WRITER: Mutex<Writer> = Mutex::new(Writer {});
+static WRITER: Mutex<Writer> = Mutex::new(Writer { newline: false });
 
 pub fn _print(args: fmt::Arguments) {
     // NOTE: Locking needs to happen around `print_fmt`, not `print_str`, as the former
@@ -49,5 +60,5 @@ macro_rules! print {
 macro_rules! println {
     ()          => { $crate::print!("\n"); };
     // On nightly, `format_args_nl!` could also be used.
-    ($($t:tt)*) => { $crate::print!("[{}]: {}\n", $crate::time::elapsed(), format_args!($($t)*)); };
+    ($($t:tt)*) => { $crate::print!("{}\n", format_args!($($t)*)); };
 }

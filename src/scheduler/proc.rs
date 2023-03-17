@@ -126,7 +126,7 @@ impl Process {
             };
 
             let flags = region.page_flags();
-            vmm.map_4kib(self.pml4_phys, virt, phys, flags, false);
+            vmm.map_4kib(self.pml4_phys, virt, phys, flags);
         }
     }
 

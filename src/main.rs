@@ -24,11 +24,11 @@ mod framebuffer;
 mod fs;
 mod mm;
 mod pci;
+mod posix;
 mod scheduler;
 mod syscall;
 mod time;
 mod utils;
-mod posix;
 
 use alloc::slice;
 use arch::x86_64::gdt;

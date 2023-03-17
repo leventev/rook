@@ -71,14 +71,32 @@ impl PageFlags {
     }
 
     pub fn to_plm2_flags(&self) -> PML2Flags {
-        PML2Flags::from_bits(self.bits).unwrap()
+        let mut flags = PML2Flags::from_bits(self.bits).unwrap();
+        if self.contains(PageFlags::ALLOC_ON_ACCESS) {
+            flags.remove(PML2Flags::ALLOC_ON_ACCESS);
+            flags.insert(PML2Flags::PRESENT);
+        }
+
+        flags
     }
 
     pub fn to_plm3_flags(&self) -> PML3Flags {
-        PML3Flags::from_bits(self.bits).unwrap()
+        let mut flags = PML3Flags::from_bits(self.bits).unwrap();
+        if self.contains(PageFlags::ALLOC_ON_ACCESS) {
+            flags.remove(PML3Flags::ALLOC_ON_ACCESS);
+            flags.insert(PML3Flags::PRESENT);
+        }
+
+        flags
     }
 
     pub fn to_plm4_flags(&self) -> PML4Flags {
-        PML4Flags::from_bits(self.bits).unwrap()
+        let mut flags = PML4Flags::from_bits(self.bits).unwrap();
+        if self.contains(PageFlags::ALLOC_ON_ACCESS) {
+            flags.remove(PML4Flags::ALLOC_ON_ACCESS);
+            flags.insert(PML4Flags::PRESENT);
+        }
+
+        flags
     }
 }

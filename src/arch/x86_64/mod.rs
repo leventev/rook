@@ -34,6 +34,9 @@ bitflags::bitflags! {
 }
 
 extern "C" {
+    #[link_name = "x86_64_get_cr2"]
+    pub fn get_cr2() -> u64;
+
     #[link_name = "x86_64_get_cr3"]
     pub fn get_cr3() -> u64;
 
@@ -117,4 +120,11 @@ pub fn interrupts_enabled() -> bool {
 
 pub fn get_current_pml4() -> PhysAddr {
     PhysAddr::new(unsafe { get_cr3() })
+}
+
+#[inline]
+pub fn flush_tlb_page(virt: u64) {
+    unsafe {
+        asm!("invlpg [{}]", in(reg) virt);
+    }
 }
