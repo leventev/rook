@@ -80,6 +80,8 @@ pub struct Process {
     pub gid: usize,
     pub egid: usize,
 
+    pub cwd: Arc<Mutex<FileDescriptor>>,
+
     mapped_regions: Vec<MappedRegion>,
 
     pub main_thread: Weak<Mutex<Thread>>,
@@ -93,17 +95,24 @@ unsafe impl Send for Process {}
 static PROCESSES: Mutex<Vec<Option<Arc<Mutex<Process>>>>> = Mutex::new(Vec::new());
 
 impl Process {
-    fn new() -> Process {
+    fn new(
+        uid: usize,
+        euid: usize,
+        gid: usize,
+        egid: usize,
+        cwd: Arc<Mutex<FileDescriptor>>,
+    ) -> Process {
         let pml4 = phys::alloc();
         virt::copy_pml4_higher_half_entries(pml4, get_current_pml4());
 
         Process {
             pid: 0,
-            egid: 0,
-            euid: 0,
-            gid: 0,
+            egid,
+            euid,
+            gid,
             ppid: 0,
-            uid: 0,
+            uid,
+            cwd,
             mapped_regions: Vec::new(),
             main_thread: create_user_thread(),
             pml4_phys: pml4,
@@ -435,7 +444,8 @@ pub fn load_process(proc: &mut Process, exec_path: &str, args: &[&str], envvars:
 }
 
 pub fn load_base_process(exec_path: &str) {
-    let pid = add_process(Process::new());
+    let cwd = Arc::new(Mutex::new(*fs::open("/root").expect("Failed to open /root")));
+    let pid = add_process(Process::new(1, 1, 1, 1, cwd));
     let proc_lock = get_process(pid).unwrap();
     let mut proc = proc_lock.lock();
 
@@ -458,7 +468,7 @@ pub fn load_base_process(exec_path: &str) {
 
     let main_thread_id = { proc.main_thread.upgrade().unwrap().lock().id };
 
-    let argv = [exec_path.clone()];
+    let argv = [<&str>::clone(&exec_path)];
     let envp = [];
 
     if !load_process(&mut proc, exec_path, &argv[..], &envp[..]) {

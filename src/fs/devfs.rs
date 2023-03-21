@@ -116,14 +116,14 @@ impl DeviceFileSystemInner {
     ) -> Result<Option<&'a mut DeviceFileTreeNode>, DevFsError> {
         let mut node = &mut self.root_node;
 
-        if path.len() == 0 {
+        if path.is_empty() {
             return Ok(Some(node));
         }
 
         for part in &path[..path.len() - 1] {
-            match node {
-                &mut DeviceFileTreeNode::File(_) => return Err(DevFsError::InvalidPath),
-                &mut DeviceFileTreeNode::Directory(ref mut entries) => {
+            match *node {
+                DeviceFileTreeNode::File(_) => return Err(DevFsError::InvalidPath),
+                DeviceFileTreeNode::Directory(ref mut entries) => {
                     let new_node = entries.iter_mut().find(|ent| ent.0 == *part);
                     match new_node {
                         Some(n) => node = &mut n.1,

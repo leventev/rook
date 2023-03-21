@@ -327,7 +327,7 @@ impl VirtualFileSystem {
             .position(|mount| &mount.path[..] == mount_path);
 
         match pos {
-            Some(idx) => return Some(self.mounts[idx].clone()),
+            Some(idx) => Some(self.mounts[idx].clone()),
             None => None,
         }
     }
@@ -344,7 +344,7 @@ impl VirtualFileSystem {
         let subpath = mount.get_subpath(&parsed_path);
 
         if !mount.nodes.borrow().contains_key(subpath) {
-            let inode = mount.fs.inner.open(&subpath)?;
+            let inode = mount.fs.inner.open(subpath)?;
 
             let n = VFSNode {
                 path: String::from(path),

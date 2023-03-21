@@ -4,7 +4,7 @@ use alloc::{slice, sync::Arc};
 use spin::Mutex;
 
 use crate::{
-    fs,
+    fs::{self, FileSystemError},
     posix::{errno, FileOpenFlags, FileOpenMode},
     scheduler::proc::Process,
 };
@@ -12,15 +12,27 @@ use crate::{
 #[derive(Debug, Clone, Copy)]
 enum SyscallIOError {
     InvalidFD,
+    InvalidPath,
 }
 
 impl SyscallIOError {
     fn as_errno(&self) -> u64 {
         let val = match self {
             SyscallIOError::InvalidFD => errno::EBADF,
+            // TODO: dirname error
+            SyscallIOError::InvalidPath => errno::EINVAL
         };
 
         (-val) as u64
+    }
+}
+
+impl FileSystemError {
+    fn as_syscall_io_error(&self) -> SyscallIOError {
+        match self {
+            FileSystemError::FileNotFound => SyscallIOError::InvalidPath,
+            _ => unreachable!()
+        }
     }
 }
 
@@ -48,9 +60,10 @@ fn write(
     };
 
     let mut file_desc = file_lock.lock();
-    let written = file_desc.write(len, buff).unwrap();
-
-    Ok(written as u64)
+    match file_desc.write(len, buff) {
+        Ok(written) => Ok(written as u64),
+        Err(err) => Err(err.as_syscall_io_error())
+    }
 }
 
 pub fn sys_read(proc: Arc<Mutex<Process>>, args: [u64; 6]) -> u64 {
@@ -77,14 +90,16 @@ fn read(
     };
 
     let mut file_desc = file_lock.lock();
-    let written = file_desc.read(len, buff).unwrap();
-
-    Ok(written as u64)
+    match file_desc.read(len, buff) {
+        Ok(read) => Ok(read as u64),
+        Err(err) => Err(err.as_syscall_io_error())
+    }
 }
 
 pub fn sys_openat(proc: Arc<Mutex<Process>>, args: [u64; 6]) -> u64 {
     let dirfd = args[0] as isize;
     let pathname = args[1] as *const c_char;
+    println!("{}", args[2]);
     let flags = FileOpenFlags::from_bits(args[2] as u32).unwrap();
     let mode = FileOpenMode::from_bits(args[3] as u32).unwrap();
 
@@ -112,11 +127,14 @@ fn openat(
         Err(_) => return Err(SyscallIOError::InvalidFD),
     };
 
-    // TODO: invalid path error
     let file_desc = {
-        let desc = fs::open(full_path.as_str()).unwrap();
+        let desc = match fs::open(full_path.as_str()) {
+            Ok(desc) => desc,
+            Err(err) => return Err(err.as_syscall_io_error())
+        };
         Arc::new(Mutex::new(*desc))
     };
+
     let fd = p.new_fd(None, file_desc).unwrap();
 
     Ok(fd)

@@ -25,7 +25,7 @@ impl Syscall {
     }
 }
 
-static SYSCALL_TABLE: [Syscall; 12] = [
+static SYSCALL_TABLE: [Syscall; 13] = [
     Syscall::new("write", x86_64::syscall::io::sys_write),
     Syscall::new("read", x86_64::syscall::io::sys_read),
     Syscall::new("openat", x86_64::syscall::io::sys_openat),
@@ -38,6 +38,7 @@ static SYSCALL_TABLE: [Syscall; 12] = [
     Syscall::new("geteuid", x86_64::syscall::proc::sys_geteuid),
     Syscall::new("getgid", x86_64::syscall::proc::sys_getgid),
     Syscall::new("getegid", x86_64::syscall::proc::sys_getegid),
+    Syscall::new("getcwd", x86_64::syscall::proc::sys_getcwd)
 ];
 
 #[no_mangle]
@@ -60,12 +61,25 @@ fn handle_syscall(
         get_process(current_thread.process_id).unwrap()
     };
 
+    /*{
+        let process_lock = process.lock();
+        process_lock.main_thread.upgrade().unwrap().lock().in_kernelspace = true;
+    }*/
+
+    //enable_interrupts();
+
     let syscall = &SYSCALL_TABLE[syscall_table_idx];
     let args = [arg1, arg2, arg3, arg4, arg5, arg6];
     println!("handle syscall {}", syscall.name);
 
-    let res = (syscall.callback)(process, args);
+    let res = (syscall.callback)(process.clone(), args);
     println!("syscall return {:#x}", res);
+
+    /*{
+        let process_lock = process.lock();
+        process_lock.main_thread.upgrade().unwrap().lock().in_kernelspace = false;
+    }*/
+
     res
 }
 
