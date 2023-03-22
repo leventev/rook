@@ -5,7 +5,7 @@ use spin::Mutex;
 
 use crate::{
     fs::{self, FileSystemError},
-    posix::{errno, FileOpenFlags, FileOpenMode},
+    posix::{errno, FileOpenFlags, FileOpenMode, F_DUPFD, F_GETFD, F_SETFD},
     scheduler::proc::Process,
 };
 
@@ -20,7 +20,7 @@ impl SyscallIOError {
         let val = match self {
             SyscallIOError::InvalidFD => errno::EBADF,
             // TODO: dirname error
-            SyscallIOError::InvalidPath => errno::EINVAL
+            SyscallIOError::InvalidPath => errno::EINVAL,
         };
 
         (-val) as u64
@@ -31,7 +31,7 @@ impl FileSystemError {
     fn as_syscall_io_error(&self) -> SyscallIOError {
         match self {
             FileSystemError::FileNotFound => SyscallIOError::InvalidPath,
-            _ => unreachable!()
+            _ => unreachable!(),
         }
     }
 }
@@ -62,7 +62,7 @@ fn write(
     let mut file_desc = file_lock.lock();
     match file_desc.write(len, buff) {
         Ok(written) => Ok(written as u64),
-        Err(err) => Err(err.as_syscall_io_error())
+        Err(err) => Err(err.as_syscall_io_error()),
     }
 }
 
@@ -92,7 +92,7 @@ fn read(
     let mut file_desc = file_lock.lock();
     match file_desc.read(len, buff) {
         Ok(read) => Ok(read as u64),
-        Err(err) => Err(err.as_syscall_io_error())
+        Err(err) => Err(err.as_syscall_io_error()),
     }
 }
 
@@ -130,7 +130,7 @@ fn openat(
     let file_desc = {
         let desc = match fs::open(full_path.as_str()) {
             Ok(desc) => desc,
-            Err(err) => return Err(err.as_syscall_io_error())
+            Err(err) => return Err(err.as_syscall_io_error()),
         };
         Arc::new(Mutex::new(*desc))
     };
@@ -162,4 +162,43 @@ fn close(proc: Arc<Mutex<Process>>, fd: usize) -> Result<(), SyscallIOError> {
 
 pub fn sys_fstatat(_proc: Arc<Mutex<Process>>, _args: [u64; 6]) -> u64 {
     todo!()
+}
+
+pub fn sys_fcntl(proc: Arc<Mutex<Process>>, args: [u64; 6]) -> u64 {
+    let fd = args[0] as usize;
+    let cmd = args[1] as usize;
+    let arg = args[2] as usize;
+
+    match fcntl(proc, fd, cmd, arg) {
+        Ok(ret) => ret as u64,
+        Err(err) => err.as_errno(),
+    }
+}
+
+fn fcntl(
+    proc: Arc<Mutex<Process>>,
+    fd: usize,
+    cmd: usize,
+    arg: usize,
+) -> Result<usize, SyscallIOError> {
+    let mut p = proc.lock();
+
+    match cmd {
+        F_DUPFD => match p.dup_fd(Some(arg), fd) {
+            Ok(new_fd) => Ok(new_fd),
+            Err(_) => Err(SyscallIOError::InvalidFD),
+        },
+        F_GETFD => Ok(0),
+        F_SETFD => {
+            // TODO
+            Ok(0)
+        },
+        F_GETFL => {
+            unreachable!()
+        },
+        F_SETFL => {
+            unreachable!()
+        }
+        _ => unreachable!(),
+    }
 }

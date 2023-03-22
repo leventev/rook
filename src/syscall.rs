@@ -25,7 +25,7 @@ impl Syscall {
     }
 }
 
-static SYSCALL_TABLE: [Syscall; 13] = [
+static SYSCALL_TABLE: [Syscall; 14] = [
     Syscall::new("write", x86_64::syscall::io::sys_write),
     Syscall::new("read", x86_64::syscall::io::sys_read),
     Syscall::new("openat", x86_64::syscall::io::sys_openat),
@@ -38,7 +38,8 @@ static SYSCALL_TABLE: [Syscall; 13] = [
     Syscall::new("geteuid", x86_64::syscall::proc::sys_geteuid),
     Syscall::new("getgid", x86_64::syscall::proc::sys_getgid),
     Syscall::new("getegid", x86_64::syscall::proc::sys_getegid),
-    Syscall::new("getcwd", x86_64::syscall::proc::sys_getcwd)
+    Syscall::new("getcwd", x86_64::syscall::proc::sys_getcwd),
+    Syscall::new("fcntl", x86_64::syscall::io::sys_fcntl)
 ];
 
 #[no_mangle]
