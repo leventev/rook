@@ -59,6 +59,8 @@ pub trait FileSystemInner: Debug {
     ) -> Result<usize, FileSystemError>;
 
     fn file_info(&self, inode: FSInode) -> Result<FileInfo, FileSystemError>;
+
+    fn ioctl(&self, inode: FSInode, req: usize, arg: usize) -> Result<usize, FileSystemError>;
 }
 
 #[derive(Debug)]
@@ -182,8 +184,12 @@ impl FileDescriptor {
 
     pub fn file_info(&self) -> Result<FileInfo, FileSystemError> {
         let mount = self.vnode.mount.upgrade().unwrap();
-
         mount.fs.inner.file_info(self.vnode.inode)
+    }
+
+    pub fn ioctl(&self, req: usize, arg: usize) -> Result<usize, FileSystemError> {
+        let mount = self.vnode.mount.upgrade().unwrap();
+        mount.fs.inner.ioctl(self.vnode.inode, req, arg)
     }
 }
 

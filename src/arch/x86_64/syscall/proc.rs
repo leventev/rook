@@ -1,4 +1,4 @@
-use alloc::{sync::Arc, slice};
+use alloc::{slice, sync::Arc};
 use spin::Mutex;
 
 use crate::scheduler::proc::Process;
@@ -33,7 +33,7 @@ pub fn sys_getcwd(proc: Arc<Mutex<Process>>, args: [u64; 6]) -> u64 {
 
     match getcwd(proc, buff) {
         Ok(_) => args[0],
-        Err(_) => 0
+        Err(_) => 0,
     }
 }
 

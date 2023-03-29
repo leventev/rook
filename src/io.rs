@@ -60,5 +60,5 @@ macro_rules! print {
 macro_rules! println {
     ()          => { $crate::print!("\n"); };
     // On nightly, `format_args_nl!` could also be used.
-    ($($t:tt)*) => { $crate::print!("{}\n", format_args!($($t)*)); };
+    ($($t:tt)*) => { $crate::print!("{}\n", format_args!($($t)*)) };
 }

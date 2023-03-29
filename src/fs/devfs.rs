@@ -14,6 +14,7 @@ pub trait DeviceOperations {
         buff: &mut [u8],
         size: usize,
     ) -> Result<usize, FileSystemError>;
+
     fn write(
         &mut self,
         minor: u16,
@@ -21,6 +22,8 @@ pub trait DeviceOperations {
         buff: &[u8],
         size: usize,
     ) -> Result<usize, FileSystemError>;
+
+    fn ioctl(&mut self, minor: u16, req: usize, arg: usize) -> Result<usize, FileSystemError>;
 }
 
 #[derive(Debug)]
@@ -103,6 +106,16 @@ impl FileSystemInner for DeviceFileSystem {
         let ops = inner.major_operations.get_mut(&major).unwrap();
 
         ops.write(minor, offset, buff, size)
+    }
+
+    fn ioctl(&self, inode: FSInode, req: usize, arg: usize) -> Result<usize, FileSystemError> {
+        // TODO: check if inode is valid
+        let mut inner = DEVFS_INNER.lock();
+
+        let (major, minor) = inode_to_dev_number(inode);
+        let ops = inner.major_operations.get_mut(&major).unwrap();
+
+        ops.ioctl(minor, req, arg)
     }
 }
 

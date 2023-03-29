@@ -560,6 +560,10 @@ impl FileSystemInner for FATFileSystem {
             size: file_size,
         })
     }
+
+    fn ioctl(&self, _inode: FSInode, _req: usize, _arg: usize) -> Result<usize, FileSystemError> {
+        todo!()
+    }
 }
 
 fn create_fs(part: Weak<Partition>) -> Result<Box<dyn FileSystemInner>, FileSystemError> {

@@ -444,7 +444,9 @@ pub fn load_process(proc: &mut Process, exec_path: &str, args: &[&str], envvars:
 }
 
 pub fn load_base_process(exec_path: &str) {
-    let cwd = Arc::new(Mutex::new(*fs::open("/root").expect("Failed to open /root")));
+    let cwd = Arc::new(Mutex::new(
+        *fs::open("/root").expect("Failed to open /root"),
+    ));
     let pid = add_process(Process::new(1, 1, 1, 1, cwd));
     let proc_lock = get_process(pid).unwrap();
     let mut proc = proc_lock.lock();

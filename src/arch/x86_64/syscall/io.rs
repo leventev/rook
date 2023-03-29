@@ -5,7 +5,7 @@ use spin::Mutex;
 
 use crate::{
     fs::{self, FileSystemError},
-    posix::{errno, FileOpenFlags, FileOpenMode, F_DUPFD, F_GETFD, F_SETFD},
+    posix::{errno, FileOpenFlags, FileOpenMode, F_DUPFD, F_GETFD, F_GETFL, F_SETFD, F_SETFL},
     scheduler::proc::Process,
 };
 
@@ -42,7 +42,7 @@ pub fn sys_write(proc: Arc<Mutex<Process>>, args: [u64; 6]) -> u64 {
     let buff = unsafe { slice::from_raw_parts(args[1] as *const u8, len) };
 
     match write(proc, fd, len, buff) {
-        Ok(n) => n,
+        Ok(n) => n as u64,
         Err(err) => err.as_errno(),
     }
 }
@@ -52,7 +52,7 @@ fn write(
     fd: usize,
     len: usize,
     buff: &[u8],
-) -> Result<u64, SyscallIOError> {
+) -> Result<usize, SyscallIOError> {
     let p = proc.lock();
     let file_lock = match p.get_fd(fd) {
         Some(f) => f,
@@ -61,7 +61,7 @@ fn write(
 
     let mut file_desc = file_lock.lock();
     match file_desc.write(len, buff) {
-        Ok(written) => Ok(written as u64),
+        Ok(written) => Ok(written),
         Err(err) => Err(err.as_syscall_io_error()),
     }
 }
@@ -72,7 +72,7 @@ pub fn sys_read(proc: Arc<Mutex<Process>>, args: [u64; 6]) -> u64 {
     let buff = unsafe { slice::from_raw_parts_mut(args[1] as *mut u8, len) };
 
     match read(proc, fd, len, buff) {
-        Ok(n) => n,
+        Ok(n) => n as u64,
         Err(err) => err.as_errno(),
     }
 }
@@ -82,7 +82,7 @@ fn read(
     fd: usize,
     len: usize,
     buff: &mut [u8],
-) -> Result<u64, SyscallIOError> {
+) -> Result<usize, SyscallIOError> {
     let p = proc.lock();
     let file_lock = match p.get_fd(fd) {
         Some(f) => f,
@@ -91,7 +91,7 @@ fn read(
 
     let mut file_desc = file_lock.lock();
     match file_desc.read(len, buff) {
-        Ok(read) => Ok(read as u64),
+        Ok(read) => Ok(read),
         Err(err) => Err(err.as_syscall_io_error()),
     }
 }
@@ -192,13 +192,44 @@ fn fcntl(
         F_SETFD => {
             // TODO
             Ok(0)
-        },
+        }
         F_GETFL => {
             unreachable!()
-        },
+        }
         F_SETFL => {
             unreachable!()
         }
         _ => unreachable!(),
+    }
+}
+
+pub fn sys_ioctl(proc: Arc<Mutex<Process>>, args: [u64; 6]) -> u64 {
+    let fd = args[0] as usize;
+    let req = args[1] as usize;
+    let arg = args[2] as usize;
+
+    match ioctl(proc, fd, req, arg) {
+        Ok(n) => n as u64,
+        Err(err) => err.as_errno(),
+    }
+}
+
+fn ioctl(
+    proc: Arc<Mutex<Process>>,
+    fd: usize,
+    req: usize,
+    arg: usize,
+) -> Result<usize, SyscallIOError> {
+    let p = proc.lock();
+
+    let file_lock = match p.get_fd(fd) {
+        Some(f) => f,
+        None => return Err(SyscallIOError::InvalidFD),
+    };
+
+    let file_desc = file_lock.lock();
+    match file_desc.ioctl(req, arg) {
+        Ok(ret) => Ok(ret),
+        Err(err) => Err(err.as_syscall_io_error()),
     }
 }
