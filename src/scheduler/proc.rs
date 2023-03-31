@@ -75,6 +75,8 @@ impl MappedRegion {
 pub struct Process {
     pub pid: usize,
     pub ppid: usize,
+    pub pgid: usize,
+
     pub uid: usize,
     pub euid: usize,
     pub gid: usize,
@@ -111,6 +113,7 @@ impl Process {
             euid,
             gid,
             ppid: 0,
+            pgid: 0,
             uid,
             cwd,
             mapped_regions: Vec::new(),
@@ -280,6 +283,9 @@ fn add_process(mut proc: Process) -> usize {
     } + 1;
 
     proc.pid = pid;
+    // TODO
+    proc.pgid = pid;
+
     processes[pid - 1] = Some(Arc::new(Mutex::new(proc)));
 
     pid

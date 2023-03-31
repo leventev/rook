@@ -12,6 +12,7 @@ const ALTERNATE_TTY_DEVICE_MAJOR: u16 = 5;
 
 struct Console {
     termios: Termios,
+    controlling_process_group: usize,
     y: usize,
 }
 
@@ -59,8 +60,18 @@ impl DeviceOperations for Console {
                 self.termios = unsafe { ptr.read() };
                 println!("TCSETS")
             }
-            TIOCGPGRP => println!("TIOCGPGRP"),
-            TIOCSPGRP => println!("TIOCSPGRP"),
+            TIOCGPGRP => {
+                let ptr = arg as *mut u32;
+                println!("TIOCGPGRP {:?}", ptr);
+                unsafe {
+                    ptr.write(self.controlling_process_group as u32);
+                }
+            }
+            TIOCSPGRP => {
+                let ptr = arg as *const u32;
+                self.controlling_process_group = unsafe { ptr.read() } as usize;
+                println!("TIOCSPGRP");
+            }
             _ => panic!("unimplemented ioctl req {}", req),
         }
 
@@ -80,6 +91,7 @@ pub fn init() {
                 c_lflag: (ISIG | ICANON | ECHO) as u32,
                 c_cc: [0; NCCS],
             },
+            controlling_process_group: 1,
             y: 0,
         }),
     )

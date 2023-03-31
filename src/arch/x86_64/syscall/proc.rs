@@ -1,7 +1,27 @@
 use alloc::{slice, sync::Arc};
 use spin::Mutex;
 
-use crate::scheduler::proc::Process;
+use crate::{
+    posix::errno,
+    scheduler::{self, proc::Process},
+};
+
+#[derive(Debug, Clone, Copy)]
+enum SyscallProcError {
+    InvalidPID,
+    NotFoundPID,
+}
+
+impl SyscallProcError {
+    fn as_errno(&self) -> u64 {
+        let val = match self {
+            Self::InvalidPID => errno::EINVAL,
+            Self::NotFoundPID => errno::ESRCH,
+        };
+
+        (-val) as u64
+    }
+}
 
 pub fn sys_getpid(proc: Arc<Mutex<Process>>, _args: [u64; 6]) -> u64 {
     proc.lock().pid as u64
@@ -37,7 +57,7 @@ pub fn sys_getcwd(proc: Arc<Mutex<Process>>, args: [u64; 6]) -> u64 {
     }
 }
 
-pub fn getcwd(proc: Arc<Mutex<Process>>, buff: &mut [u8]) -> Result<(), ()> {
+fn getcwd(proc: Arc<Mutex<Process>>, buff: &mut [u8]) -> Result<(), ()> {
     let p = proc.lock();
     let vnode = &p.cwd.lock().vnode;
     let vnode_path = vnode.path();
@@ -51,4 +71,28 @@ pub fn getcwd(proc: Arc<Mutex<Process>>, buff: &mut [u8]) -> Result<(), ()> {
     buff[buff.len() - 1] = b'\0';
 
     Ok(())
+}
+
+pub fn sys_getpgid(proc: Arc<Mutex<Process>>, args: [u64; 6]) -> u64 {
+    let pid = args[0] as isize;
+
+    match getpgid(proc, pid) {
+        Ok(gpid) => gpid as u64,
+        Err(err) => err.as_errno(),
+    }
+}
+
+fn getpgid(proc: Arc<Mutex<Process>>, pid: isize) -> Result<usize, SyscallProcError> {
+    if pid < 0 {
+        return Err(SyscallProcError::InvalidPID);
+    }
+
+    if pid == 0 {
+        return Ok(proc.lock().pgid);
+    }
+
+    match scheduler::proc::get_process(pid as usize) {
+        Some(proc) => Ok(proc.lock().pgid),
+        None => Err(SyscallProcError::NotFoundPID),
+    }
 }
