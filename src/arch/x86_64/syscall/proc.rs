@@ -96,3 +96,31 @@ fn getpgid(proc: Arc<Mutex<Process>>, pid: isize) -> Result<usize, SyscallProcEr
         None => Err(SyscallProcError::NotFoundPID),
     }
 }
+
+pub fn sys_setpgid(proc: Arc<Mutex<Process>>, args: [u64; 6]) -> u64 {
+    let pid = args[0] as isize;
+    let pgid = args[1] as isize;
+
+    match setpgid(proc, pid, pgid) {
+        Ok(_) => 0,
+        Err(err) => err.as_errno(),
+    }
+}
+
+fn setpgid(proc: Arc<Mutex<Process>>, pid: isize, pgid: isize) -> Result<(), SyscallProcError> {
+    if pid < 0 {
+        return Err(SyscallProcError::InvalidPID);
+    }
+
+    if pgid < 0 {
+        // TODO: new error ?
+        return Err(SyscallProcError::InvalidPID);
+    }
+
+    assert!(pid == 0, "Only PID == 0 is implemented");
+
+    proc.lock().pgid = pgid as usize;
+
+    Ok(())
+}
+

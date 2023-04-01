@@ -7,3 +7,5 @@ limine/
 root/
 *.o
 ports/
+toolchain/binutils-*
+toolchain/gcc-*
