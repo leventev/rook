@@ -31,7 +31,7 @@ mod time;
 mod utils;
 
 use alloc::slice;
-use arch::x86_64::gdt;
+use arch::x86_64::{gdt, self};
 use limine::{
     LimineBootTimeRequest, LimineFramebufferRequest, LimineHhdmRequest, LimineMemmapRequest,
 };
@@ -108,6 +108,8 @@ fn kernel_init() -> ! {
 
     // only unmap it after every we executed every request
     mm::virt::unmap_limine_pages();
+
+    x86_64::init();
 
     gdt::init();
 

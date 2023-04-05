@@ -433,6 +433,9 @@ pub fn load_process(proc: &mut Process, exec_path: &str, args: &[&str], envvars:
     let stack_bottom = STACK_BASE + STACK_SIZE;
     let (argv, envp) = unsafe { write_argv_envp(stack_bottom, args, envvars) };
 
+    assert!(argv % 8 == 0);
+    let stack_top = argv - argv % 16;
+
     // argc, 1st arg
     main_thread.user_regs.rdi = args.len() as u64;
     // argv, 2nd arg
@@ -442,7 +445,9 @@ pub fn load_process(proc: &mut Process, exec_path: &str, args: &[&str], envvars:
 
     // TODO: validate
     main_thread.user_regs.rip = elf_file.ehdr.e_entry;
-    main_thread.user_regs.rsp = argv;
+    main_thread.user_regs.rsp = stack_top;
+
+    println!("RSP: {:#x}", argv);
 
     main_thread.process_id = proc.pid;
 

@@ -239,7 +239,7 @@ pub fn dump_pml4(pml4_phys: PhysAddr) {
 }
 
 pub fn switch_pml4(pml4: PhysAddr) {
-    unsafe { set_cr3(pml4.get()) };
+    set_cr3(pml4.get());
 }
 
 pub fn copy_pml4_higher_half_entries(to: PhysAddr, from: PhysAddr) {

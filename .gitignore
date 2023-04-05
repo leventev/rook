@@ -9,3 +9,4 @@ root/
 ports/
 toolchain/binutils-*
 toolchain/gcc-*
+.vscode/

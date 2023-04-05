@@ -130,7 +130,7 @@ pub extern "C" fn excp_page_fault(error_code: u64) {
 
     let page_fault_flags = PageFaultFlags::from_bits(error_code as u32).unwrap();
 
-    let addr = VirtAddr::new(unsafe { get_cr2() });
+    let addr = VirtAddr::new(get_cr2());
     let (_, mut page_flags) = vmm.get_page_entry_from_virt(pml4, addr).unwrap();
 
     println!("{:?} ... {:?} {}", page_fault_flags, page_flags, addr);

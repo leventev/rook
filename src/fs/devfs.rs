@@ -84,12 +84,18 @@ impl FileSystemInner for DeviceFileSystem {
 
     fn read(
         &self,
-        _inode: FSInode,
-        _offset: usize,
-        _buff: &mut [u8],
-        _size: usize,
+        inode: FSInode,
+        offset: usize,
+        buff: &mut [u8],
+        size: usize,
     ) -> Result<usize, FileSystemError> {
-        todo!()
+        // TODO: check if inode is valid
+        let mut inner = DEVFS_INNER.lock();
+
+        let (major, minor) = inode_to_dev_number(inode);
+        let ops = inner.major_operations.get_mut(&major).unwrap();
+
+        ops.read(minor, offset, buff, size)
     }
 
     fn write(
