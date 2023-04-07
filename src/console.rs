@@ -53,16 +53,13 @@ impl DeviceOperations for Console {
                 unsafe {
                     ptr.write(self.termios);
                 }
-                println!("TCGETS")
             }
             TCSETS => {
                 let ptr = arg as *const Termios;
                 self.termios = unsafe { ptr.read() };
-                println!("TCSETS")
             }
             TIOCGPGRP => {
                 let ptr = arg as *mut u32;
-                println!("TIOCGPGRP {:?}", ptr);
                 unsafe {
                     ptr.write(self.controlling_process_group as u32);
                 }
@@ -70,7 +67,6 @@ impl DeviceOperations for Console {
             TIOCSPGRP => {
                 let ptr = arg as *const u32;
                 self.controlling_process_group = unsafe { ptr.read() } as usize;
-                println!("TIOCSPGRP");
             }
             _ => panic!("unimplemented ioctl req {}", req),
         }

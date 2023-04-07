@@ -14,6 +14,9 @@ pub mod serial;
 #[cfg(fat_module)]
 pub mod fat;
 
+#[cfg(ps2_module)]
+pub mod ps2_keyboard;
+
 // FIXME: dont include assembly files associated with disabled modules in the build
 
 #[derive(Debug)]
@@ -73,6 +76,9 @@ pub fn init() {
 
     #[cfg(fat_module)]
     modules.push(KernelModule::new(fat::init, "fat"));
+
+    #[cfg(ps2_module)]
+    modules.push(KernelModule::new(ps2_keyboard::init, "ps2"));
 }
 
 pub fn preload_driver(name: &str) {
