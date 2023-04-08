@@ -500,7 +500,7 @@ impl Scheduler {
         let _current_thread_id = self.current_queue.pop_front();
 
         // if the queue is empty start at the front of the running threads
-        if self.current_queue.len() == 0 {
+        if self.current_queue.is_empty() {
             self.fill_queue();
         }
 
@@ -512,11 +512,11 @@ impl Scheduler {
             unsafe {
                 x86_64::tss::TSS.rsp0 = next_thread.stack_bottom;
             }
-            // TODO
-            if next_thread.user_thread {
-                next_thread.user_regs
-            } else {
+
+            if next_thread.in_kernelspace {
                 next_thread.kernel_regs
+            } else {
+                next_thread.user_regs
             }
         };
 

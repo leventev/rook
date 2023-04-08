@@ -4,7 +4,7 @@ use spin::Mutex;
 use crate::{
     arch::x86_64::{
         self,
-        idt::{self, IDTTypeAttr},
+        idt::{self, IDTTypeAttr}, enable_interrupts, disable_interrupts,
     },
     scheduler::{
         self,
@@ -65,12 +65,12 @@ fn handle_syscall(
         get_process(current_thread.process_id).unwrap()
     };
 
-    /*{
+    {
         let process_lock = process.lock();
         process_lock.main_thread.upgrade().unwrap().lock().in_kernelspace = true;
-    }*/
+    }
 
-    //enable_interrupts();
+    enable_interrupts();
 
     let syscall = &SYSCALL_TABLE[syscall_table_idx];
     let args = [arg1, arg2, arg3, arg4, arg5, arg6];
@@ -79,10 +79,12 @@ fn handle_syscall(
     let res = (syscall.callback)(process.clone(), args);
     println!("syscall return {:#x}", res);
 
-    /*{
+    disable_interrupts();
+
+    {
         let process_lock = process.lock();
         process_lock.main_thread.upgrade().unwrap().lock().in_kernelspace = false;
-    }*/
+    }
 
     res
 }

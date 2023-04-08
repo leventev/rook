@@ -24,7 +24,7 @@ use elf::{
 };
 use spin::Mutex;
 
-use super::Thread;
+use super::{Thread, ThreadID};
 
 bitflags::bitflags! {
     pub struct MappedRegionFlags: u64 {
@@ -455,37 +455,42 @@ pub fn load_process(proc: &mut Process, exec_path: &str, args: &[&str], envvars:
 }
 
 pub fn load_base_process(exec_path: &str) {
-    let cwd = Arc::new(Mutex::new(
-        *fs::open("/root").expect("Failed to open /root"),
-    ));
-    let pid = add_process(Process::new(1, 1, 1, 1, cwd));
-    let proc_lock = get_process(pid).unwrap();
-    let mut proc = proc_lock.lock();
+    let main_thread_id: ThreadID;
 
-    // open console
-    let console_fd = fs::open("/dev/console").expect("Failed to open /dev/console");
+    {
+        let cwd = Arc::new(Mutex::new(
+            *fs::open("/root").expect("Failed to open /root"),
+        ));
+        let pid = add_process(Process::new(1, 1, 1, 1, cwd));
 
-    // stdin
-    let fd = proc
-        .new_fd(Some(0), Arc::new(Mutex::new(*console_fd)))
-        .unwrap();
-    assert!(fd == 0);
+        let proc_lock = get_process(pid).unwrap();
+        let mut proc = proc_lock.lock();
 
-    // stdout
-    let fd = proc.dup_fd(None, fd).unwrap();
-    assert!(fd == 1);
+        // open console
+        let console_fd = fs::open("/dev/console").expect("Failed to open /dev/console");
 
-    // stderr
-    let fd = proc.dup_fd(None, fd).unwrap();
-    assert!(fd == 2);
+        // stdin
+        let fd = proc
+            .new_fd(Some(0), Arc::new(Mutex::new(*console_fd)))
+            .unwrap();
+        assert!(fd == 0);
 
-    let main_thread_id = { proc.main_thread.upgrade().unwrap().lock().id };
+        // stdout
+        let fd = proc.dup_fd(None, fd).unwrap();
+        assert!(fd == 1);
 
-    let argv = [<&str>::clone(&exec_path)];
-    let envp = [];
+        // stderr
+        let fd = proc.dup_fd(None, fd).unwrap();
+        assert!(fd == 2);
 
-    if !load_process(&mut proc, exec_path, &argv[..], &envp[..]) {
-        panic!("failed to load base process");
+        main_thread_id = proc.main_thread.upgrade().unwrap().lock().id;
+
+        let argv = [<&str>::clone(&exec_path)];
+        let envp = [];
+
+        if !load_process(&mut proc, exec_path, &argv[..], &envp[..]) {
+            panic!("failed to load base process");
+        }
     }
 
     run_user_thread(main_thread_id);
@@ -493,5 +498,9 @@ pub fn load_base_process(exec_path: &str) {
 
 pub fn get_process(pid: usize) -> Option<Arc<Mutex<Process>>> {
     let processes = PROCESSES.lock();
-    processes[pid - 1].clone()
+    let proc = processes.get(pid - 1);
+    match proc {
+        Some(p) => p.as_ref().map(Arc::clone),
+        None => None,
+    }
 }
