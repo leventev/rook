@@ -1,9 +1,5 @@
 use crate::arch::x86_64::{inb, outb};
 
-const DATA_REGISTER_PORT: u16 = 0x60;
-const STATUS_REGISTER_PORT: u16 = 0x64;
-const COMMAND_REGISTER_PORT: u16 = 0x64;
-
 bitflags::bitflags! {
     struct StatusRegisterFlags: u8 {
         const OUTPUT_BUFFER_FULL = 1 << 0;
@@ -39,6 +35,17 @@ bitflags::bitflags! {
     }
 }
 
+#[derive(Debug)]
+pub enum PS2ControllerError {
+    ConfigFileReadFailed,
+    SelfTestFailed,
+    DataBufferWriteFailed,
+}
+
+const DATA_REGISTER_PORT: u16 = 0x60;
+const STATUS_REGISTER_PORT: u16 = 0x64;
+const COMMAND_REGISTER_PORT: u16 = 0x64;
+
 const CMD_READ_CFG_BYTE: u8 = 0x20;
 const CMD_WRITE_CFG_BYTE: u8 = 0x60;
 
@@ -53,6 +60,8 @@ const CMD_DISABLE_FIRST_PORT: u8 = 0xAD;
 const CMD_ENABLE_SECOND_PORT: u8 = 0xA8;
 const CMD_DISABLE_SECOND_PORT: u8 = 0xA7;
 
+const CMD_NEXT_BYTE_SECOND_PORT: u8 = 0xD4;
+
 const SELF_TEST_SUCCESS: u8 = 0x55;
 
 const DEVICE_CMD_RESET: u8 = 0xFF;
@@ -64,19 +73,19 @@ fn read_status() -> StatusRegisterFlags {
     StatusRegisterFlags::from_bits(status).unwrap()
 }
 
-fn read_config_byte() -> Result<ConfigByteFlags, ()> {
+fn read_config_byte() -> Result<ConfigByteFlags, PS2ControllerError> {
     match send_command_response(CMD_READ_CFG_BYTE) {
         Ok(val) => Ok(ConfigByteFlags::from_bits(val).unwrap()),
-        Err(_) => Err(()),
+        Err(_) => Err(PS2ControllerError::ConfigFileReadFailed),
     }
 }
 
-fn write_config_byte(cfg: ConfigByteFlags) -> Result<(), ()> {
+fn write_config_byte(cfg: ConfigByteFlags) -> Result<(), PS2ControllerError> {
     send_command(CMD_WRITE_CFG_BYTE);
     write_data_buffer(cfg.bits)
 }
 
-fn read_data_buffer() -> Result<u8, ()> {
+pub fn read_data_buffer() -> Result<u8, ()> {
     if !wait_until_output_buffer_full() {
         return Err(());
     }
@@ -85,17 +94,17 @@ fn read_data_buffer() -> Result<u8, ()> {
     Ok(val)
 }
 
-fn write_data_buffer(val: u8) -> Result<(), ()> {
+fn write_data_buffer(val: u8) -> Result<(), PS2ControllerError> {
     if wait_until_output_buffer_empty() {
         outb(DATA_REGISTER_PORT, val);
         Ok(())
     } else {
-        Err(())
+        Err(PS2ControllerError::DataBufferWriteFailed)
     }
 }
 
 fn wait_until_output_buffer_full() -> bool {
-    const TIMEOUT: usize = 10000;
+    const TIMEOUT: usize = 100000;
     for _ in 0..TIMEOUT {
         let status = read_status();
         if status.contains(StatusRegisterFlags::OUTPUT_BUFFER_FULL) {
@@ -127,12 +136,16 @@ fn send_command_response(cmd: u8) -> Result<u8, ()> {
     read_data_buffer()
 }
 
-// TODO: write_data_to_second_port
-fn write_data_to_first_port(val: u8) -> Result<(), ()> {
+fn write_data_first_port(val: u8) -> Result<(), PS2ControllerError> {
     write_data_buffer(val)
 }
 
-pub fn init() -> bool {
+fn write_data_second_port(val: u8) -> Result<(), PS2ControllerError> {
+    send_command(CMD_NEXT_BYTE_SECOND_PORT);
+    write_data_buffer(val)
+}
+
+pub fn init() -> Result<(bool, bool), PS2ControllerError> {
     // disable both channels
     send_command(CMD_DISABLE_FIRST_PORT);
     send_command(CMD_DISABLE_SECOND_PORT);
@@ -140,16 +153,7 @@ pub fn init() -> bool {
     // discard data stuck in data buffer
     inb(DATA_REGISTER_PORT);
 
-    let mut config_byte = match read_config_byte() {
-        Ok(cfg) => cfg,
-        Err(_) => {
-            println!("PS2: could not read config byte");
-            return false;
-        }
-    };
-
-    // it should be disabled
-    let mut dual_channel = config_byte.contains(ConfigByteFlags::SECOND_PORT_CLOCK_DISABLED);
+    let mut config_byte = read_config_byte()?;
 
     // disable interrupts and translation
     config_byte.remove(ConfigByteFlags::FIRST_PORT_INTERRUPT_ENABLED);
@@ -157,78 +161,68 @@ pub fn init() -> bool {
     config_byte.remove(ConfigByteFlags::FIRST_PORT_TRANSLATION);
 
     // write config byte
-    write_config_byte(config_byte).unwrap();
+    write_config_byte(config_byte)?;
 
     match send_command_response(CMD_TEST_CONTROLLER) {
         Ok(res) => {
             if res != SELF_TEST_SUCCESS {
-                println!("PS2: self test failed");
-                return false;
+                return Err(PS2ControllerError::SelfTestFailed);
             }
         }
-        Err(_) => {
-            println!("PS2: self test failed");
-            return false;
-        }
+        Err(_) => return Err(PS2ControllerError::SelfTestFailed),
     };
 
     // rewrite config byte because the self test sometimes resets the controller
-    write_config_byte(config_byte).unwrap();
+    write_config_byte(config_byte)?;
 
-    if !dual_channel {
+    let dual_channel = {
         send_command(CMD_ENABLE_SECOND_PORT);
+        let config_byte = read_config_byte()?;
 
-        let config_byte = match read_config_byte() {
-            Ok(cfg) => cfg,
-            Err(_) => {
-                println!("PS2: could not read config byte");
-                return false;
-            }
-        };
+        !config_byte.contains(ConfigByteFlags::SECOND_PORT_CLOCK_DISABLED)
+    };
 
-        dual_channel = !config_byte.contains(ConfigByteFlags::SECOND_PORT_CLOCK_DISABLED);
-
-        if dual_channel {
-            send_command(CMD_DISABLE_SECOND_PORT);
-        }
+    if dual_channel {
+        send_command(CMD_DISABLE_SECOND_PORT);
     }
 
-    let first_port_working = match send_command_response(CMD_TEST_FIRST_PORT) {
-        Ok(n) => n == 0,
-        Err(_) => false,
-    };
-
-    let second_port_working = if dual_channel {
-        match send_command_response(CMD_TEST_FIRST_PORT) {
-            Ok(n) => n == 0,
-            Err(_) => false,
-        }
-    } else {
-        false
-    };
+    let (mut first_port_working, mut second_port_working) = (
+        send_command_response(CMD_TEST_FIRST_PORT).map_or(false, |n| n == 0),
+        dual_channel && send_command_response(CMD_TEST_SECOND_PORT).map_or(false, |n| n == 0),
+    );
 
     if first_port_working {
-        println!("PS2: first port working");
         send_command(CMD_ENABLE_FIRST_PORT);
+        config_byte.remove(ConfigByteFlags::FIRST_PORT_CLOCK_DISABLED);
         config_byte.insert(ConfigByteFlags::FIRST_PORT_INTERRUPT_ENABLED);
     }
 
     if second_port_working {
-        println!("PS2: second port working");
         send_command(CMD_ENABLE_SECOND_PORT);
-        // TODO
+        config_byte.remove(ConfigByteFlags::SECOND_PORT_CLOCK_DISABLED);
+        config_byte.insert(ConfigByteFlags::SECOND_PORT_INTERRUPT_ENABLED);
     }
+
+    // reset devices
+    first_port_working &= write_data_first_port(DEVICE_CMD_RESET).map_or(false, |_| {
+        let res = read_data_buffer().unwrap_or(DEVICE_RESET_FAILURE);
+        res == DEVICE_RESET_SUCCESS
+    });
+
+    second_port_working &= write_data_second_port(DEVICE_CMD_RESET).map_or(false, |_| {
+        send_command(CMD_NEXT_BYTE_SECOND_PORT);
+        let res = read_data_buffer().unwrap_or(DEVICE_RESET_FAILURE);
+        res == DEVICE_RESET_SUCCESS
+    });
+
+    read_data_buffer().unwrap();
+
+    config_byte.insert(ConfigByteFlags::FIRST_PORT_TRANSLATION);
 
     // enable interrupts
-    write_config_byte(config_byte).unwrap();
+    write_config_byte(config_byte)?;
 
-    if first_port_working {
-        write_data_buffer(DEVICE_CMD_RESET).unwrap();
-        let res = read_data_buffer().unwrap();
-        if res != DEVICE_RESET_SUCCESS {
-            return false;
-        }
-    }
+    // TODO: maybe disable interrupts for a channel that failed to reset
 
-    true
+    Ok((first_port_working, second_port_working))
 }

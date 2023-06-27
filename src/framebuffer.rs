@@ -99,7 +99,7 @@ impl Framebuffer {
         buff[y_off + x_off + 0] = blue;
     }
 
-    fn draw_glyph(&self, glyph_idx: usize, x: usize, y: usize) {
+    fn draw_glyph(&self, glyph_idx: usize, x: usize, y: usize, clear_background: bool) {
         let bitmap = self.get_glyph_bitmap(glyph_idx);
 
         let mut yy = y;
@@ -120,6 +120,8 @@ impl Framebuffer {
                     let mask = 1 << (7 - col);
                     if byte & mask > 0 {
                         self.draw_pixel(xx, yy, 255, 0, 0);
+                    } else if clear_background {
+                        self.draw_pixel(xx, yy, 0, 0, 0);
                     }
                     xx += 1;
                 }
@@ -129,7 +131,7 @@ impl Framebuffer {
         }
     }
 
-    fn draw_character(&self, c: char, col: usize, row: usize) {
+    fn draw_character(&self, c: char, col: usize, row: usize, clear_background: bool) {
         let x = col * self.font_width;
         let y = row * self.font_height;
         let glyph = match &self.unicode_glyph_table {
@@ -143,21 +145,7 @@ impl Framebuffer {
                 }
             }
         };
-        self.draw_glyph(glyph, x, y);
-    }
-
-    fn draw_text(&self, s: &str, col: usize, row: usize) {
-        // TODO: remove this
-        let mut c = col;
-        let mut r = row;
-        for ch in s.chars() {
-            self.draw_character(ch, c, r);
-            c += 1;
-            if c >= self.text_columns {
-                r += 1;
-                c = 0;
-            }
-        }
+        self.draw_glyph(glyph, x, y, clear_background);
     }
 }
 
@@ -191,8 +179,8 @@ pub fn draw_pixel(x: usize, y: usize, red: u8, green: u8, blue: u8) {
     fb.draw_pixel(x, y, red, green, blue);
 }
 
-pub fn draw_text(s: &str, col: usize, row: usize) {
+pub fn draw_character(ch: char, col: usize, row: usize, clear_background: bool) {
     let fb = FRAMEBUFFER.lock();
     assert!(fb.mode == FramebufferMode::Graphics);
-    fb.draw_text(s, col, row);
+    fb.draw_character(ch, col, row, clear_background);
 }

@@ -3,8 +3,8 @@ use spin::Mutex;
 
 use crate::{
     arch::x86_64::{
-        self,
-        idt::{self, IDTTypeAttr}, enable_interrupts, disable_interrupts,
+        self, disable_interrupts, enable_interrupts,
+        idt::{self, IDTTypeAttr},
     },
     scheduler::{
         self,
@@ -67,7 +67,12 @@ fn handle_syscall(
 
     {
         let process_lock = process.lock();
-        process_lock.main_thread.upgrade().unwrap().lock().in_kernelspace = true;
+        process_lock
+            .main_thread
+            .upgrade()
+            .unwrap()
+            .lock()
+            .in_kernelspace = true;
     }
 
     enable_interrupts();
@@ -83,7 +88,12 @@ fn handle_syscall(
 
     {
         let process_lock = process.lock();
-        process_lock.main_thread.upgrade().unwrap().lock().in_kernelspace = false;
+        process_lock
+            .main_thread
+            .upgrade()
+            .unwrap()
+            .lock()
+            .in_kernelspace = false;
     }
 
     res

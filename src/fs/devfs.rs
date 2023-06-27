@@ -1,4 +1,4 @@
-use alloc::{boxed::Box, string::String, vec::Vec};
+use alloc::{boxed::Box, string::String, sync::Arc, vec::Vec};
 use hashbrown::HashMap;
 use spin::{Lazy, Mutex};
 
@@ -6,9 +6,9 @@ use super::{
     inode::FSInode, mount_special, FileInfo, FileSystem, FileSystemError, FileSystemInner,
 };
 
-pub trait DeviceOperations {
+pub trait DevFsDevice {
     fn read(
-        &mut self,
+        &self,
         minor: u16,
         offset: usize,
         buff: &mut [u8],
@@ -16,14 +16,14 @@ pub trait DeviceOperations {
     ) -> Result<usize, FileSystemError>;
 
     fn write(
-        &mut self,
+        &self,
         minor: u16,
         offset: usize,
         buff: &[u8],
         size: usize,
     ) -> Result<usize, FileSystemError>;
 
-    fn ioctl(&mut self, minor: u16, req: usize, arg: usize) -> Result<usize, FileSystemError>;
+    fn ioctl(&self, minor: u16, req: usize, arg: usize) -> Result<usize, FileSystemError>;
 }
 
 #[derive(Debug)]
@@ -34,7 +34,7 @@ enum DeviceFileTreeNode {
 
 struct DeviceFileSystemInner {
     pub root_node: DeviceFileTreeNode,
-    pub major_operations: HashMap<u16, Box<dyn DeviceOperations>>,
+    pub major_operations: HashMap<u16, Arc<dyn DevFsDevice>>,
 }
 
 unsafe impl Send for DeviceFileSystemInner {}
@@ -216,7 +216,7 @@ pub fn register_devfs_node(path: &[String], major: u16, minor: u16) -> Result<()
 
 pub fn register_devfs_node_operations(
     major: u16,
-    ops: Box<dyn DeviceOperations>,
+    ops: Arc<dyn DevFsDevice>,
 ) -> Result<(), DevFsError> {
     let mut inner = DEVFS_INNER.lock();
     if inner.major_operations.contains_key(&major) {

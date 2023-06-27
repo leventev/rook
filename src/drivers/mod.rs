@@ -15,7 +15,7 @@ pub mod serial;
 pub mod fat;
 
 #[cfg(ps2_module)]
-pub mod ps2_keyboard;
+pub mod ps2;
 
 // FIXME: dont include assembly files associated with disabled modules in the build
 
@@ -78,7 +78,7 @@ pub fn init() {
     modules.push(KernelModule::new(fat::init, "fat"));
 
     #[cfg(ps2_module)]
-    modules.push(KernelModule::new(ps2_keyboard::init, "ps2"));
+    modules.push(KernelModule::new(ps2::init, "ps2"));
 }
 
 pub fn preload_driver(name: &str) {
@@ -104,13 +104,8 @@ pub fn load_drivers() {
 }
 
 pub fn is_loaded(lookup: &str) -> bool {
-    if KERNEL_MODULES.is_locked() {
-        return false;
-    }
+    assert!(KERNEL_MODULES.is_locked());
 
     let modules = KERNEL_MODULES.lock();
-    modules
-        .iter()
-        .find(|driver| driver.name == lookup)
-        .is_some()
+    modules.iter().any(|driver| driver.name == lookup)
 }

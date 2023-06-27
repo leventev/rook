@@ -246,22 +246,28 @@ fn parse_partition_table(dev: Rc<BlockDevice>) -> Vec<Partition> {
     const MBR_PARTITION_TABLE_START: usize = 0x1BE;
     for i in 0..4 {
         let buff_offset = MBR_PARTITION_TABLE_START + i * size_of::<MBREntry>();
-        unsafe {
-            let entry = buff.as_ptr().offset(buff_offset as isize) as *const MBREntry;
 
-            if (*entry).system_id == 0 || (*entry).start_lba == 0 || (*entry).lba_count == 0 {
+        let start: u32;
+        let size: u32;
+
+        unsafe {
+            let entry = buff.as_ptr().add(buff_offset) as *const MBREntry;
+
+            let system_id = (*entry).system_id;
+            start = (*entry).start_lba;
+            size = (*entry).lba_count;
+
+            if system_id == 0 || start == 0 || size == 0 {
                 continue;
             }
-
-            let start = (*entry).start_lba;
-            let size = (*entry).lba_count;
-            partitions.push(Partition {
-                block_device: Rc::downgrade(&dev),
-                part_idx: partitions.len(),
-                start: start as usize,
-                size: size as usize,
-            })
         }
+
+        partitions.push(Partition {
+            block_device: Rc::downgrade(&dev),
+            part_idx: partitions.len(),
+            start: start as usize,
+            size: size as usize,
+        })
     }
 
     partitions

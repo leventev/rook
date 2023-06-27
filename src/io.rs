@@ -11,7 +11,9 @@ unsafe impl Send for Writer {}
 
 impl fmt::Write for Writer {
     fn write_str(&mut self, s: &str) -> fmt::Result {
-        if cfg!(serial_module) && drivers::is_loaded("serial") {
+        if cfg!(serial_module)
+        /*&& drivers::is_loaded("serial")*/
+        {
             for c in s.bytes() {
                 if self.newline {
                     self.newline = false;

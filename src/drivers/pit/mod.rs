@@ -60,7 +60,7 @@ pub fn init() -> bool {
     outb(PIT_CHANNEL0_DATA, (reload_value & 0xff) as u8);
     outb(PIT_CHANNEL0_DATA, (reload_value >> 8) as u8);
 
-    pic::install_irq_handler(0, __pit_timer_interrupt as u64);
+    pic::install_irq_handler(TIMER_IRQ, __pit_timer_interrupt as u64);
     println!("timer initialized, running at {}Hz", TIMER_FREQUENCY);
     enable();
 

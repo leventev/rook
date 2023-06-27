@@ -31,7 +31,7 @@ mod time;
 mod utils;
 
 use alloc::slice;
-use arch::x86_64::{gdt, self};
+use arch::x86_64::{self, gdt};
 use limine::{
     LimineBootTimeRequest, LimineFramebufferRequest, LimineHhdmRequest, LimineMemmapRequest,
 };

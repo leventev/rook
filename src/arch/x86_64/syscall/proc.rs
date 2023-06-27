@@ -123,4 +123,3 @@ fn setpgid(proc: Arc<Mutex<Process>>, pid: isize, pgid: isize) -> Result<(), Sys
 
     Ok(())
 }
-
