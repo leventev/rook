@@ -5,6 +5,7 @@ use alloc::{boxed::Box, rc::Weak, string::String};
 use crate::{
     blk::{IORequest, Partition, BLOCK_LBA_SIZE},
     fs::{self, inode::FSInode, FileInfo, FileSystemError, FileSystemInner, FileSystemSkeleton},
+    posix::Stat,
     utils,
 };
 
@@ -109,6 +110,15 @@ struct DirectoryEntry {
     data_cluster_start: u32,
     directory_cluster: u32,
     directory_cluster_index: usize,
+}
+
+impl DirectoryEntry {
+    fn file_size(&self) -> usize {
+        match self.ent_type {
+            DirectoryEntryType::Directory => 0,
+            DirectoryEntryType::File(n) => n,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -425,10 +435,8 @@ impl FATFileSystem {
         let val = inode.0 as u32;
         (val >> 4, (val & 0xF) as usize)
     }
-}
 
-impl FileSystemInner for FATFileSystem {
-    fn open(&self, path: &[String]) -> Result<FSInode, fs::FileSystemError> {
+    fn find_file(&self, path: &[String]) -> Option<DirectoryEntry> {
         let root_dir_start_cluster = self.root_cluster;
         let mut start_cluster = root_dir_start_cluster;
 
@@ -437,24 +445,42 @@ impl FileSystemInner for FATFileSystem {
             match dir_ent {
                 Some(ent) => {
                     match ent.ent_type {
-                        DirectoryEntryType::File(_) => return Err(FileSystemError::FileNotFound),
+                        DirectoryEntryType::File(_) => return None,
                         DirectoryEntryType::Directory => (),
                     }
 
                     start_cluster = ent.data_cluster_start;
                 }
-                None => {
-                    return Err(FileSystemError::FileNotFound);
-                }
+                None => return None,
             }
         }
 
-        let last_file = self.find_dir_ent(start_cluster, path.last().unwrap());
-        match last_file {
+        self.find_dir_ent(start_cluster, path.last().unwrap())
+    }
+}
+
+impl FileSystemInner for FATFileSystem {
+    fn open(&self, path: &[String]) -> Result<FSInode, fs::FileSystemError> {
+        match self.find_file(path) {
             Some(file) => {
                 let inode =
                     Self::file_to_inode(file.directory_cluster, file.directory_cluster_index);
                 Ok(inode)
+            }
+            None => Err(FileSystemError::FileNotFound),
+        }
+    }
+
+    fn stat(&self, path: &[String], stat_buf: &mut Stat) -> Result<(), FileSystemError> {
+        match self.find_file(path) {
+            Some(file) => {
+                let inode =
+                    Self::file_to_inode(file.directory_cluster, file.directory_cluster_index);
+                stat_buf.st_ino = inode.0;
+                stat_buf.st_size = file.file_size() as u64;
+                // TODO
+
+                Ok(())
             }
             None => Err(FileSystemError::FileNotFound),
         }
@@ -477,11 +503,6 @@ impl FileSystemInner for FATFileSystem {
 
         let file = self.get_dir_ent(file_parts.0, file_parts.1);
 
-        let file_size = match file.ent_type {
-            DirectoryEntryType::Directory => return Err(FileSystemError::IsDirectory),
-            DirectoryEntryType::File(n) => n,
-        };
-
         let lba = offset / BLOCK_LBA_SIZE;
         let mut cluster = file.data_cluster_start;
         for _ in 0..lba {
@@ -490,7 +511,7 @@ impl FileSystemInner for FATFileSystem {
         }
 
         let mut buff_left = size;
-        let mut size_left = file_size;
+        let mut size_left = file.file_size();
         let mut total_read = 0;
         let mut start_off = offset % BLOCK_LBA_SIZE;
 
@@ -546,7 +567,7 @@ impl FileSystemInner for FATFileSystem {
         todo!()
     }
 
-    fn file_info(&self, inode: FSInode) -> Result<fs::FileInfo, FileSystemError> {
+    fn fstat(&self, inode: FSInode) -> Result<fs::FileInfo, FileSystemError> {
         let file_parts = Self::inode_to_file(&inode);
         let file = self.get_dir_ent(file_parts.0, file_parts.1);
 

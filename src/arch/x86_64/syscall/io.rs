@@ -5,7 +5,9 @@ use spin::Mutex;
 
 use crate::{
     fs::{self, FileSystemError},
-    posix::{errno, FileOpenFlags, FileOpenMode, F_DUPFD, F_GETFD, F_GETFL, F_SETFD, F_SETFL},
+    posix::{
+        errno, FileOpenFlags, FileOpenMode, Stat, F_DUPFD, F_GETFD, F_GETFL, F_SETFD, F_SETFL,
+    },
     scheduler::proc::Process,
 };
 
@@ -99,7 +101,6 @@ fn read(
 pub fn sys_openat(proc: Arc<Mutex<Process>>, args: [u64; 6]) -> u64 {
     let dirfd = args[0] as isize;
     let pathname = args[1] as *const c_char;
-    println!("{}", args[2]);
     let flags = FileOpenFlags::from_bits(args[2] as u32).unwrap();
     let mode = FileOpenMode::from_bits(args[3] as u32).unwrap();
 
@@ -160,8 +161,43 @@ fn close(proc: Arc<Mutex<Process>>, fd: usize) -> Result<(), SyscallIOError> {
     Ok(())
 }
 
-pub fn sys_fstatat(_proc: Arc<Mutex<Process>>, _args: [u64; 6]) -> u64 {
-    todo!()
+pub fn sys_fstatat(proc: Arc<Mutex<Process>>, args: [u64; 6]) -> u64 {
+    let fd = args[0] as isize;
+    let path = args[1] as *const c_char;
+    let stat_buf = args[2] as *mut Stat;
+    let flag = args[3] as usize;
+
+    match fstatat(proc, fd, path, stat_buf, flag) {
+        Ok(ret) => ret,
+        Err(err) => err.as_errno(),
+    }
+}
+
+fn fstatat(
+    proc: Arc<Mutex<Process>>,
+    fd: isize,
+    path: *const c_char,
+    stat_buf: *mut Stat,
+    _flag: usize,
+) -> Result<u64, SyscallIOError> {
+    // TODO: flag
+    let p = proc.lock();
+
+    // TODO: validate path
+    let path = unsafe { CStr::from_ptr(path) }.to_str().unwrap();
+
+    let full_path = match p.get_full_path_from_dirfd(fd, path) {
+        Ok(path) => path,
+        Err(_) => return Err(SyscallIOError::InvalidFD),
+    };
+
+    // TODO: validate struct
+    let stat_buf = unsafe { stat_buf.as_mut() }.unwrap();
+
+    match fs::stat(&full_path, stat_buf) {
+        Ok(_) => Ok(0),
+        Err(err) => Err(err.as_syscall_io_error()),
+    }
 }
 
 pub fn sys_fcntl(proc: Arc<Mutex<Process>>, args: [u64; 6]) -> u64 {

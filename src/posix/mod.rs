@@ -148,11 +148,35 @@ pub const TCSAFLUSH: usize = 2;
 pub const NCCS: usize = 32;
 
 #[repr(C, packed)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct Termios {
     pub c_iflag: u32,
     pub c_oflag: u32,
     pub c_cflag: u32,
     pub c_lflag: u32,
     pub c_cc: [u8; NCCS],
+}
+
+#[repr(C, packed)]
+#[derive(Clone, Copy, Debug)]
+pub struct Timespec {
+    pub tv_sec: u64,
+    pub tv_nsec: u64
+}
+
+#[repr(C, packed)]
+pub struct Stat {
+    pub st_dev: u64,
+    pub st_ino: u64,
+    pub st_mode: u32,
+    pub st_nlink: u32,
+    pub st_uid: u32,
+    pub st_gid: u32,
+    pub st_rdev: u64,
+    pub st_size: u64,
+    pub st_atim: Timespec,
+    pub st_mtim: Timespec,
+    pub st_ctim: Timespec,
+    pub st_blksize: u64,
+    pub st_blocks: u64
 }

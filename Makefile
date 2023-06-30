@@ -7,7 +7,7 @@ QEMUFLAGS=-m 128M -serial stdio -vga std -no-reboot -no-shutdown\
 
 SYSROOT=$(shell realpath root)
 
-CROSSDIR=$(HOME)/opt/cross
+CROSSDIR=/opt/cross
 
 BINUTILS_COMPFLAGS=--target=x86_64-rook --prefix=$(CROSSDIR)\
 	--with-sysroot=$(SYSROOT) --disable-nls --disable-werror

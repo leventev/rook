@@ -2,6 +2,8 @@ use alloc::{boxed::Box, string::String, sync::Arc, vec::Vec};
 use hashbrown::HashMap;
 use spin::{Lazy, Mutex};
 
+use crate::posix::Stat;
+
 use super::{
     inode::FSInode, mount_special, FileInfo, FileSystem, FileSystemError, FileSystemInner,
 };
@@ -74,11 +76,15 @@ impl FileSystemInner for DeviceFileSystem {
         }
     }
 
+    fn stat(&self, _path: &[String], _stat_buf: &mut Stat) -> Result<(), FileSystemError> {
+        todo!()
+    }
+
     fn close(&self, _inode: FSInode) -> Result<(), FileSystemError> {
         todo!()
     }
 
-    fn file_info(&self, _inode: FSInode) -> Result<FileInfo, FileSystemError> {
+    fn fstat(&self, _inode: FSInode) -> Result<FileInfo, FileSystemError> {
         todo!()
     }
 

@@ -13,7 +13,7 @@ use alloc::{
 };
 use spin::RwLock;
 
-use crate::blk::Partition;
+use crate::{blk::Partition, posix::Stat};
 
 use self::inode::FSInode;
 
@@ -58,7 +58,11 @@ pub trait FileSystemInner: Debug {
         size: usize,
     ) -> Result<usize, FileSystemError>;
 
-    fn file_info(&self, inode: FSInode) -> Result<FileInfo, FileSystemError>;
+
+    fn stat(&self, path: &[String], stat_buf: &mut Stat) -> Result<(), FileSystemError>;
+
+    // TODO: remove
+    fn fstat(&self, inode: FSInode) -> Result<FileInfo, FileSystemError>;
 
     fn ioctl(&self, inode: FSInode, req: usize, arg: usize) -> Result<usize, FileSystemError>;
 }
@@ -184,7 +188,7 @@ impl FileDescriptor {
 
     pub fn file_info(&self) -> Result<FileInfo, FileSystemError> {
         let mount = self.vnode.mount.upgrade().unwrap();
-        mount.fs.inner.file_info(self.vnode.inode)
+        mount.fs.inner.fstat(self.vnode.inode)
     }
 
     pub fn ioctl(&self, req: usize, arg: usize) -> Result<usize, FileSystemError> {
@@ -373,6 +377,22 @@ impl VirtualFileSystem {
             offset: 0,
         }))
     }
+
+    fn stat(&mut self, path: &str, stat_buf: &mut Stat) -> Result<(), FileSystemError> {
+        let parsed_path = match parse_path(path) {
+            Some(s) => s,
+            None => return Err(FileSystemError::InvalidPath),
+        };
+
+        let mount = self
+            .find_path_mount(&parsed_path)
+            .expect("Root filesystem is not mounted");
+        let subpath = mount.get_subpath(&parsed_path);
+
+        // TODO: dcache
+
+        mount.fs.inner.stat(subpath, stat_buf)
+    }
 }
 
 static VFS: RwLock<VirtualFileSystem> = RwLock::new(VirtualFileSystem::new());
@@ -413,6 +433,11 @@ pub fn open(path: &str) -> Result<Box<FileDescriptor>, FileSystemError> {
     };
 
     Ok(node)
+}
+
+pub fn stat(path: &str, stat_buf: &mut Stat) -> Result<(), FileSystemError> {
+    let mut vfs = VFS.write();
+    vfs.stat(path, stat_buf)
 }
 
 pub fn register_fs_skeleton(skel: FileSystemSkeleton) -> Result<(), FileSystemError> {
