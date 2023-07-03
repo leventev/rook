@@ -29,12 +29,14 @@ mod scheduler;
 mod syscall;
 mod time;
 mod utils;
+mod sync;
 
 use alloc::slice;
 use arch::x86_64::{self, gdt};
 use limine::{
     LimineBootTimeRequest, LimineFramebufferRequest, LimineHhdmRequest, LimineMemmapRequest,
 };
+use scheduler::SCHEDULER;
 
 use crate::{
     arch::x86_64::{disable_interrupts, idt, pic, stacktrace},
@@ -120,9 +122,9 @@ fn kernel_init() -> ! {
 
     mm::kalloc::init();
 
-    scheduler::init();
-    scheduler::spawn_kernel_thread(main_init_thread);
-    scheduler::start();
+    SCHEDULER.init();
+    SCHEDULER.create_kernel_thread(main_init_thread);
+    SCHEDULER.start();
 }
 
 fn main_init_thread() {

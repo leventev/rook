@@ -1,7 +1,7 @@
 use core::fmt;
 use spin::Mutex;
 
-use crate::{arch::x86_64, drivers, time};
+use crate::{arch::x86_64, drivers, time, sync::InterruptMutex};
 
 struct Writer {
     newline: bool,
@@ -32,25 +32,11 @@ impl fmt::Write for Writer {
     }
 }
 
-static WRITER: Mutex<Writer> = Mutex::new(Writer { newline: false });
+static WRITER: InterruptMutex<Writer> = InterruptMutex::new(Writer { newline: false });
 
 pub fn _print(args: fmt::Arguments) {
-    // NOTE: Locking needs to happen around `print_fmt`, not `print_str`, as the former
-    // will call the latter potentially multiple times per invocation.
-
-    let int_enabled = x86_64::interrupts_enabled();
-    if int_enabled {
-        x86_64::disable_interrupts();
-    }
-
-    {
-        let mut writer = WRITER.lock();
-        fmt::Write::write_fmt(&mut *writer, args).ok();
-    }
-
-    if int_enabled {
-        x86_64::enable_interrupts();
-    }
+    let mut writer = WRITER.lock();
+    fmt::Write::write_fmt(&mut *writer, args).ok();
 }
 
 #[macro_export]

@@ -15,6 +15,7 @@ extern "C" {
 
 pub fn init() -> bool {
     disable_interrupts();
+
     let res = match controller::init() {
         Ok(ports) => {
             match ports {
@@ -23,7 +24,7 @@ pub fn init() -> bool {
                     // TODO: don't assume the first port is the keyboard
                     assert!(first);
 
-                    pic::install_irq_handler(FIRST_PORT_IRQ, __ps2_first_interrupt as u64);
+                    pic::install_irq_handler(FIRST_PORT_IRQ, __ps2_first_interrupt as usize as u64);
                     clear_irq(FIRST_PORT_IRQ);
 
                     true

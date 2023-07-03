@@ -3,8 +3,28 @@ use spin::Mutex;
 
 use crate::{
     posix::errno,
-    scheduler::{self, proc::Process},
+    scheduler::{self, proc::{Process, self}},
 };
+
+struct CloneArgs {
+    flags: u64,
+    pidfd: u64,
+
+    child_tid: u64,
+
+    parent_tid: u64,
+
+    exit_signal: u64,
+
+    stack: u64,
+    stack_size: u64,
+    tls: u64,
+    set_tid: u64,
+
+    set_tid_size: u64,
+
+    cgroup: u64,
+}
 
 #[derive(Debug, Clone, Copy)]
 enum SyscallProcError {
@@ -122,4 +142,29 @@ fn setpgid(proc: Arc<Mutex<Process>>, pid: isize, pgid: isize) -> Result<(), Sys
     proc.lock().pgid = pgid as usize;
 
     Ok(())
+}
+
+pub fn sys_clone(proc: Arc<Mutex<Process>>, args: [u64; 6]) -> u64 {
+    let clone_args = args[0] as *const CloneArgs;
+    let size = args[1] as usize;
+
+    match clone(proc, clone_args, size) {
+        Ok(pid) => pid as u64,
+        Err(err) => err.as_errno(),
+    }
+}
+
+fn clone(
+    proc: Arc<Mutex<Process>>,
+    clone_args: *const CloneArgs,
+    _size: usize,
+) -> Result<usize, SyscallProcError> {
+    // TODO: check if sizeof(clone_args) == size???
+
+    //let mut p = proc.lock();
+
+    //let child = Process::new();
+
+
+    todo!()
 }

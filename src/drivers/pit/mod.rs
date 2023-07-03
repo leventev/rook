@@ -1,3 +1,4 @@
+use crate::scheduler::SCHEDULER;
 use crate::time;
 use crate::{
     arch::x86_64::{
@@ -75,7 +76,7 @@ fn pit_timer_interrupt() {
     time::advance(ms_passed as u64);
 
     // this function may not return
-    scheduler::tick();
+    SCHEDULER.tick();
 }
 
 pub fn enable() {

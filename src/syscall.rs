@@ -7,8 +7,9 @@ use crate::{
         idt::{self, IDTTypeAttr},
     },
     scheduler::{
-        self,
         proc::{get_process, Process},
+        SCHEDULER,
+        thread::ThreadInner
     },
 };
 
@@ -25,7 +26,7 @@ impl Syscall {
     }
 }
 
-static SYSCALL_TABLE: [Syscall; 17] = [
+static SYSCALL_TABLE: &[Syscall] = &[
     Syscall::new("write", x86_64::syscall::io::sys_write),
     Syscall::new("read", x86_64::syscall::io::sys_read),
     Syscall::new("openat", x86_64::syscall::io::sys_openat),
@@ -43,6 +44,7 @@ static SYSCALL_TABLE: [Syscall; 17] = [
     Syscall::new("ioctl", x86_64::syscall::io::sys_ioctl),
     Syscall::new("getpgid", x86_64::syscall::proc::sys_getpgid),
     Syscall::new("setpgid", x86_64::syscall::proc::sys_setpgid),
+    Syscall::new("clone", x86_64::syscall::proc::sys_clone),
 ];
 
 #[no_mangle]
@@ -58,22 +60,17 @@ fn handle_syscall(
     let syscall_table_idx = syscall_no as usize;
     assert!(syscall_table_idx < SYSCALL_TABLE.len());
 
+    let thread_lock = SCHEDULER.get_current_thread();
     let process = {
-        let thread_lock = scheduler::get_current_thread();
-        let current_thread = thread_lock.lock();
-        assert!(current_thread.user_thread);
-        get_process(current_thread.process_id).unwrap()
-    };
+        let mut current_thread = thread_lock.lock();
 
-    {
-        let process_lock = process.lock();
-        process_lock
-            .main_thread
-            .upgrade()
-            .unwrap()
-            .lock()
-            .in_kernelspace = true;
-    }
+        if let ThreadInner::User(data) = &mut current_thread.inner {
+            data.in_kernelspace = true;
+            get_process(data.pid).unwrap()
+        } else {
+            unreachable!()
+        }
+    };
 
     enable_interrupts();
 
@@ -81,19 +78,19 @@ fn handle_syscall(
     let args = [arg1, arg2, arg3, arg4, arg5, arg6];
     println!("handle syscall {}", syscall.name);
 
-    let res = (syscall.callback)(process.clone(), args);
+    let res = (syscall.callback)(process, args);
     println!("syscall return {:#x}", res);
 
     disable_interrupts();
 
     {
-        let process_lock = process.lock();
-        process_lock
-            .main_thread
-            .upgrade()
-            .unwrap()
-            .lock()
-            .in_kernelspace = false;
+        let mut current_thread = thread_lock.lock();
+
+        if let ThreadInner::User(data) = &mut current_thread.inner {
+            data.in_kernelspace = false;
+        } else {
+            unreachable!()
+        }
     }
 
     res

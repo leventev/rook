@@ -1,7 +1,6 @@
 use alloc::fmt;
-use spin::Mutex;
 
-use crate::arch::x86_64;
+use crate::sync::InterruptMutex;
 
 // TODO: use a mutex or something?
 static mut BOOT_TIME: u64 = 0;
@@ -20,7 +19,7 @@ impl fmt::Display for Time {
     }
 }
 
-static SYSTEM_CLOCK: Mutex<Time> = Mutex::new(Time {
+static SYSTEM_CLOCK: InterruptMutex<Time> = InterruptMutex::new(Time {
     seconds: 0,
     milliseconds: 0,
 });
@@ -35,27 +34,13 @@ pub fn advance(ms: u64) {
     let mut clock = SYSTEM_CLOCK.lock();
     clock.milliseconds += ms;
     clock.seconds += clock.milliseconds / 1000;
-    clock.milliseconds = clock.milliseconds % 1000;
+    clock.milliseconds %= 1000;
 }
 
 // TODO: consider returning a reference
 pub fn elapsed() -> Time {
-    let interrupts_enabled = x86_64::interrupts_enabled();
-    if interrupts_enabled {
-        x86_64::disable_interrupts();
-    }
-
-    let time;
-    {
-        let clock = SYSTEM_CLOCK.lock();
-        time = clock.clone();
-    }
-
-    if interrupts_enabled {
-        x86_64::enable_interrupts();
-    }
-
-    time
+    let clock = SYSTEM_CLOCK.lock();
+    *clock
 }
 
 pub fn global_time() -> Time {

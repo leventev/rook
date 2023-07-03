@@ -1,5 +1,5 @@
 use crate::{
-    arch::x86_64::{get_current_pml4, paging::PageFlags},
+    arch::x86_64::{get_current_pml4, paging::PageFlags, disable_interrupts, enable_interrupts},
     fs::{self, FileDescriptor},
     mm::{
         phys,
@@ -7,7 +7,7 @@ use crate::{
         PhysAddr, VirtAddr,
     },
     posix::AT_FCWD,
-    scheduler::{create_user_thread, run_user_thread},
+    scheduler::{ThreadInner, SCHEDULER},
     utils,
 };
 use alloc::{
@@ -34,7 +34,7 @@ bitflags::bitflags! {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MappedRegion {
     start: usize,
     pages: usize,
@@ -72,6 +72,7 @@ impl MappedRegion {
     }
 }
 
+#[derive(Debug)]
 pub struct Process {
     pub pid: usize,
     pub ppid: usize,
@@ -97,31 +98,34 @@ unsafe impl Send for Process {}
 static PROCESSES: Mutex<Vec<Option<Arc<Mutex<Process>>>>> = Mutex::new(Vec::new());
 
 impl Process {
-    fn new(
-        uid: usize,
-        euid: usize,
-        gid: usize,
-        egid: usize,
-        cwd: Arc<Mutex<FileDescriptor>>,
-    ) -> Process {
+    fn new_base_process(cwd: Arc<Mutex<FileDescriptor>>) -> Arc<Mutex<Process>> {
+        let mut processes = PROCESSES.lock();
+        assert!(processes.len() == 0);
+
         let pml4 = phys::alloc();
         virt::copy_pml4_higher_half_entries(pml4, get_current_pml4());
 
-        Process {
-            pid: 0,
-            egid,
-            euid,
-            gid,
+        let proc = Process {
+            pid: 1,
+            egid: 1,
+            euid: 1,
+            gid: 1,
             ppid: 0,
-            pgid: 0,
-            uid,
+            pgid: 1,
+            uid: 1,
             cwd,
             mapped_regions: Vec::new(),
-            main_thread: create_user_thread(),
+            main_thread: SCHEDULER.create_user_thread(1),
             pml4_phys: pml4,
             file_descriptors: Vec::with_capacity(8),
             file_descriptors_allocated: 0,
-        }
+        };
+
+        let proc_arc = Arc::new(Mutex::new(proc));
+
+        processes.push(Some(proc_arc.clone()));
+
+        proc_arc
     }
 
     // TODO: arch specific
@@ -183,10 +187,8 @@ impl Process {
         let fd = match hint {
             Some(n) => {
                 // check if the hint is already in use
-                if n < self.file_descriptors.len() {
-                    if self.file_descriptors[n].is_some() {
-                        return Err(());
-                    }
+                if n < self.file_descriptors.len() && self.file_descriptors[n].is_some() {
+                    return Err(());
                 }
 
                 // if a hint was provided allocate enough space then return
@@ -268,27 +270,37 @@ impl Process {
             Ok(format!("{}/{}", base_path, path))
         }
     }
-}
 
-fn add_process(mut proc: Process) -> usize {
-    let mut processes = PROCESSES.lock();
-    let pid = match processes.iter().position(Option::is_none) {
-        Some(x) => x,
-        None => {
-            let old_len = processes.len();
-            let new_len = if old_len == 0 { 8 } else { old_len * 2 };
-            processes.resize_with(new_len, || None);
-            old_len
+    /*pub fn clone_proc(&self, copy_page_tables: bool, copy_files: bool) -> Process {
+        let mut processes = PROCESSES.lock();
+        let pid = match processes.iter().position(Option::is_none) {
+            Some(x) => x,
+            None => {
+                let old_len = processes.len();
+                let new_len = if old_len == 0 { 8 } else { old_len * 2 };
+                processes.resize_with(new_len, || None);
+                old_len
+            }
+        } + 1;
+
+        Process {
+            pid,
+            ppid: self.pid,
+            pgid: self.pid,
+            uid: self.uid,
+            euid: self.euid,
+            gid: self.gid,
+            egid: self.egid,
+            // TODO: cwd?
+            cwd: self.cwd.clone(),
+            // TODO: mapped regions?
+            mapped_regions: self.mapped_regions.clone(),
+            main_thread: ,
+            pml4_phys: (),
+            file_descriptors: (),
+            file_descriptors_allocated: (),
         }
-    } + 1;
-
-    proc.pid = pid;
-    // TODO
-    proc.pgid = pid;
-
-    processes[pid - 1] = Some(Arc::new(Mutex::new(proc)));
-
-    pid
+    }*/
 }
 
 unsafe fn write_strings_on_stack(stack: *mut u64, strs: &[&str]) -> *mut u64 {
@@ -305,7 +317,7 @@ unsafe fn write_strings_on_stack(stack: *mut u64, strs: &[&str]) -> *mut u64 {
 
         let leftover_size = aligned_size - s.len();
         if leftover_size > 0 {
-            let leftover_ptr = string_stack.offset(s.len() as isize);
+            let leftover_ptr = string_stack.add(s.len());
             let leftover_area = slice::from_raw_parts_mut(leftover_ptr, leftover_size);
             for byte in leftover_area {
                 *byte = 0;
@@ -328,7 +340,7 @@ unsafe fn write_string_table_on_stack(
 
     for s in strs.iter().rev() {
         let aligned_size = s.len() + POINTER_SIZE - (s.len() % POINTER_SIZE);
-        str_stack = str_stack - aligned_size as u64;
+        str_stack -= aligned_size as u64;
 
         table_stack = table_stack.offset(-1);
         *table_stack = str_stack;
@@ -436,34 +448,37 @@ pub fn load_process(proc: &mut Process, exec_path: &str, args: &[&str], envvars:
     assert!(argv % 8 == 0);
     let stack_top = argv - argv % 16;
 
-    // argc, 1st arg
-    main_thread.user_regs.rdi = args.len() as u64;
-    // argv, 2nd arg
-    main_thread.user_regs.rsi = argv;
-    // envp, 3rd arg
-    main_thread.user_regs.rdx = envp;
+    if let ThreadInner::User(data) = &mut main_thread.inner {
+        // argc, 1st arg
+        data.user_regs.rdi = args.len() as u64;
+        // argv, 2nd arg
+        data.user_regs.rsi = argv;
+        // envp, 3rd arg
+        data.user_regs.rdx = envp;
 
-    // TODO: validate
-    main_thread.user_regs.rip = elf_file.ehdr.e_entry;
-    main_thread.user_regs.rsp = stack_top;
+        // TODO: validate
+        data.user_regs.rip = elf_file.ehdr.e_entry;
+        data.user_regs.rsp = stack_top;
 
-    println!("RSP: {:#x}", argv);
-
-    main_thread.process_id = proc.pid;
+        data.pid = proc.pid;
+    } else {
+        unreachable!()
+    }
 
     true
 }
 
 pub fn load_base_process(exec_path: &str) {
+    disable_interrupts();
+
     let main_thread_id: ThreadID;
 
     {
         let cwd = Arc::new(Mutex::new(
             *fs::open("/root").expect("Failed to open /root"),
         ));
-        let pid = add_process(Process::new(1, 1, 1, 1, cwd));
 
-        let proc_lock = get_process(pid).unwrap();
+        let proc_lock = Process::new_base_process(cwd);
         let mut proc = proc_lock.lock();
 
         // open console
@@ -493,7 +508,8 @@ pub fn load_base_process(exec_path: &str) {
         }
     }
 
-    run_user_thread(main_thread_id);
+    SCHEDULER.run_thread(main_thread_id);
+    enable_interrupts();
 }
 
 pub fn get_process(pid: usize) -> Option<Arc<Mutex<Process>>> {

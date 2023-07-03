@@ -2,7 +2,6 @@ use alloc::{string::String, sync::Arc, vec::Vec};
 use spin::Mutex;
 
 use crate::{
-    arch::x86_64::{disable_interrupts, enable_interrupts},
     drivers::ps2::{
         self,
         keyboard::{KeyEvent, PS2KeyboardEventHandler, PS2_KEY_BACKSPACE},
@@ -10,6 +9,7 @@ use crate::{
     framebuffer,
     fs::devfs::{self, DevFsDevice},
     posix::{Termios, ECHO, ICANON, ISIG, NCCS, TCGETS, TCSETS, TIOCGPGRP, TIOCSPGRP},
+    sync::InterruptMutex,
 };
 
 const ALTERNATE_TTY_DEVICE_MAJOR: u16 = 5;
@@ -34,7 +34,7 @@ struct ConsoleState {
 
 struct Console {
     state: Mutex<ConsoleState>,
-    stdin_buffer: Mutex<StdinBuffer>,
+    stdin_buffer: InterruptMutex<StdinBuffer>,
     terminal: Mutex<Terminal>,
 }
 
@@ -157,14 +157,10 @@ impl DevFsDevice for Console {
         size: usize,
     ) -> Result<usize, crate::fs::FileSystemError> {
         loop {
-            disable_interrupts();
-            {
-                let buffer = self.stdin_buffer.lock();
-                if !buffer.buffer.is_empty() {
-                    break;
-                }
+            let buffer = self.stdin_buffer.lock();
+            if !buffer.buffer.is_empty() {
+                break;
             }
-            enable_interrupts();
         }
 
         // FIXME: interrupt locking because an keyboard interrupt could cause a deadlock here
@@ -250,7 +246,7 @@ impl PS2KeyboardEventHandler for Console {
 pub fn init() {
     let con = Arc::new(Console {
         state: Mutex::new(ConsoleState::new()),
-        stdin_buffer: Mutex::new(StdinBuffer::new()),
+        stdin_buffer: InterruptMutex::new(StdinBuffer::new()),
         terminal: Mutex::new(Terminal::new()),
     });
 

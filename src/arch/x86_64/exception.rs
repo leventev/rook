@@ -5,7 +5,7 @@ use crate::{
         virt::{PAGE_SIZE_4KIB, VIRTUAL_MEMORY_MANAGER},
         VirtAddr,
     },
-    scheduler::RegisterState,
+    scheduler::thread::RegisterState,
 };
 
 extern "C" {
