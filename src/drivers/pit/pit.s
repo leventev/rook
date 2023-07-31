@@ -1,30 +1,11 @@
 bits 64
 
 extern pit_timer_interrupt
-extern ticks_until_switch
-extern save_regs
 
-section .data
-rax_temp: dq 0
-
-; this is wildly unoptimized and slow
 section .text
 global __pit_timer_interrupt:function (__pit_timer_interrupt.end - __pit_timer_interrupt)
 __pit_timer_interrupt:
-    mov [rax_temp], rax
-
-    mov rax, gs
-    push rax
-
-    mov rax, fs
-    push rax
-
-    mov rax, ds
-    push rax
-
-    mov rax, es
-    push rax
-
+    ; push general purpose registers
     push rbp
     push r15
     push r14
@@ -39,13 +20,9 @@ __pit_timer_interrupt:
     push rdx
     push rcx
     push rbx
-
-    mov rax, [rax_temp]
     push rax
 
-    ; save registers
-    call save_regs
-.call_timer:
+    mov rdi, rsp
     call pit_timer_interrupt
 
     pop rax
@@ -63,9 +40,6 @@ __pit_timer_interrupt:
     pop r14
     pop r15
     pop rbp
-
-    ; segments
-    add rsp, 4 * 8
 
     iretq
 .end:

@@ -3,13 +3,14 @@ pub mod gdt;
 pub mod idt;
 pub mod paging;
 pub mod pic;
+pub mod registers;
 pub mod stacktrace;
 pub mod syscall;
 pub mod tss;
 
 use core::arch::asm;
 
-use crate::mm::PhysAddr;
+use crate::mm::{virt::PML4, PhysAddr};
 
 bitflags::bitflags! {
     pub struct Rflags: u64 {
@@ -30,6 +31,8 @@ bitflags::bitflags! {
         const VIRTUAL_INTERRUPT = 1 << 19;
         const VIRTUAL_INTERRUPT_PENDING = 1 << 20;
         const ID = 1 << 21;
+
+        const THREAD_DEFAULT = Self::INTERRUPT.bits() | Self::RESERVED_BIT_1.bits();
     }
 
     pub struct CR0Flags: u64 {
@@ -217,6 +220,18 @@ pub fn set_cr4(flags: CR4Flags) {
     }
 }
 
+pub fn set_segment_selectors(data_selector: u64) {
+    unsafe {
+        asm!(
+        "mov es, rax",
+        "mov ds, rax",
+        "mov fs, rax",
+        "mov gs, rax",
+        in("rax") data_selector
+        );
+    }
+}
+
 #[inline]
 pub fn outb(port: u16, val: u8) {
     unsafe {
@@ -285,8 +300,12 @@ pub fn interrupts_enabled() -> bool {
     rflags.contains(Rflags::INTERRUPT)
 }
 
-pub fn get_current_pml4() -> PhysAddr {
+pub fn get_current_pml4_phys() -> PhysAddr {
     PhysAddr::new(get_cr3())
+}
+
+pub fn get_current_pml4() -> PML4 {
+    PML4::from_phys(get_current_pml4_phys())
 }
 
 #[inline]

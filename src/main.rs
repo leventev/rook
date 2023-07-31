@@ -26,10 +26,10 @@ mod mm;
 mod pci;
 mod posix;
 mod scheduler;
+mod sync;
 mod syscall;
 mod time;
 mod utils;
-mod sync;
 
 use alloc::slice;
 use arch::x86_64::{self, gdt};
@@ -39,7 +39,7 @@ use limine::{
 use scheduler::SCHEDULER;
 
 use crate::{
-    arch::x86_64::{disable_interrupts, idt, pic, stacktrace},
+    arch::x86_64::{disable_interrupts, get_current_pml4, idt, pic, stacktrace},
     fs::devfs,
     mm::{virt::HDDM_VIRT_START, VirtAddr},
     scheduler::proc,
@@ -93,11 +93,12 @@ fn vmm_setup() {
         fb.bpp as usize,
     );
 
-    mm::virt::init(hhdm);
+    let pml4 = get_current_pml4();
+
+    pml4.map_hhdm(VirtAddr::new(hhdm));
     mm::phys::init(mmap);
 
-    // this function sets the rsp
-    mm::virt::map_physical_address_space();
+    pml4.map_physical_address_space();
 }
 
 #[no_mangle]
@@ -109,7 +110,8 @@ fn kernel_init() -> ! {
         .boot_time;
 
     // only unmap it after every we executed every request
-    mm::virt::unmap_limine_pages();
+    let pml4 = get_current_pml4();
+    pml4.unmap_limine_pages();
 
     x86_64::init();
 
@@ -120,9 +122,11 @@ fn kernel_init() -> ! {
 
     time::init(boot_time as u64);
 
-    mm::kalloc::init();
+    mm::kalloc::init(&pml4);
 
-    SCHEDULER.init();
+    mm::phys::init_page_descriptors();
+
+    SCHEDULER.init(&pml4);
     SCHEDULER.create_kernel_thread(main_init_thread);
     SCHEDULER.start();
 }

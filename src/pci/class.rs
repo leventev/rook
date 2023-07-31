@@ -1,21 +1,5 @@
 use core::fmt::Debug;
 
-/*pub trait PCIClass: Debug + Send {
-    pub fn from_subclass(subclass: u8) -> Self
-    where
-        Self: Sized;
-}
-
-impl Debug, PartialEq) for dyn PCIClass {
-    fn eq(&self, other: &Self) -> bool {
-        self == other
-    }
-
-    fn ne(&self, other: &Self) -> bool {
-        self != other
-    }
-}*/
-
 #[derive(Debug, PartialEq)]
 pub enum Unclassified {
     NonVGACompatibleDevice,

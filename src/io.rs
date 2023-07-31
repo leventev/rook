@@ -1,7 +1,6 @@
 use core::fmt;
-use spin::Mutex;
 
-use crate::{arch::x86_64, drivers, time, sync::InterruptMutex};
+use crate::{drivers, sync::InterruptMutex, time};
 
 struct Writer {
     newline: bool,

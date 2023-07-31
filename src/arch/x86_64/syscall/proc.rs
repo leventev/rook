@@ -1,29 +1,43 @@
 use alloc::{slice, sync::Arc};
+use bitflags::bitflags;
 use spin::Mutex;
 
 use crate::{
     posix::errno,
-    scheduler::{self, proc::{Process, self}},
+    scheduler::{
+        self,
+        proc::{get_process, Process},
+        thread::{ThreadID, ThreadInner},
+        SCHEDULER,
+    },
 };
 
-struct CloneArgs {
-    flags: u64,
-    pidfd: u64,
+bitflags! {
+    pub struct CloneFlags: u64 {
+        const CLONE_FILES = 1 << 0;
+        const CLONE_VM = 1 << 1;
+        const CLONE_VFORK = 1 << 2;
+    }
+}
 
-    child_tid: u64,
+pub struct CloneArgs {
+    pub flags: u64,
+    pub pidfd: u64,
 
-    parent_tid: u64,
+    pub child_tid: u64,
 
-    exit_signal: u64,
+    pub parent_tid: u64,
 
-    stack: u64,
-    stack_size: u64,
-    tls: u64,
-    set_tid: u64,
+    pub exit_signal: u64,
 
-    set_tid_size: u64,
+    pub stack: u64,
+    pub stack_size: u64,
+    pub tls: u64,
+    pub set_tid: u64,
 
-    cgroup: u64,
+    pub set_tid_size: u64,
+
+    pub cgroup: u64,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -118,8 +132,8 @@ fn getpgid(proc: Arc<Mutex<Process>>, pid: isize) -> Result<usize, SyscallProcEr
 }
 
 pub fn sys_setpgid(proc: Arc<Mutex<Process>>, args: [u64; 6]) -> u64 {
-    let pid = args[0] as isize;
-    let pgid = args[1] as isize;
+    let pid = args[0] as usize;
+    let pgid = args[1] as usize;
 
     match setpgid(proc, pid, pgid) {
         Ok(_) => 0,
@@ -127,19 +141,21 @@ pub fn sys_setpgid(proc: Arc<Mutex<Process>>, args: [u64; 6]) -> u64 {
     }
 }
 
-fn setpgid(proc: Arc<Mutex<Process>>, pid: isize, pgid: isize) -> Result<(), SyscallProcError> {
-    if pid < 0 {
-        return Err(SyscallProcError::InvalidPID);
-    }
+fn setpgid(proc: Arc<Mutex<Process>>, pid: usize, pgid: usize) -> Result<(), SyscallProcError> {
+    // TODO: session leader checks, etc...
+    let p = if pid == 0 {
+        proc
+    } else {
+        match get_process(pid) {
+            Some(p) => p,
+            None => return Err(SyscallProcError::InvalidPID),
+        }
+    };
 
-    if pgid < 0 {
-        // TODO: new error ?
-        return Err(SyscallProcError::InvalidPID);
-    }
+    let mut p = p.lock();
+    let new_pgid = if pgid == 0 { p.pid } else { pgid };
 
-    assert!(pid == 0, "Only PID == 0 is implemented");
-
-    proc.lock().pgid = pgid as usize;
+    p.pgid = new_pgid;
 
     Ok(())
 }
@@ -160,11 +176,42 @@ fn clone(
     _size: usize,
 ) -> Result<usize, SyscallProcError> {
     // TODO: check if sizeof(clone_args) == size???
+    // TODO: validate clone_args
 
-    //let mut p = proc.lock();
+    let child_tid: ThreadID;
+    let child_pid: usize;
+    let block_wait_for_child: bool;
 
-    //let child = Process::new();
+    {
+        let clone_args = unsafe { clone_args.as_ref() }.unwrap();
+        let p = proc.lock();
 
+        let child = p.clone_proc(clone_args);
+        let child = child.lock();
+        child_pid = child.pid;
 
-    todo!()
+        {
+            let thread = child.main_thread.upgrade().unwrap();
+            let mut thread = thread.lock();
+
+            child_tid = thread.id;
+
+            if let ThreadInner::User(data) = &mut thread.inner {
+                data.user_regs.general.rax = 0;
+                data.in_kernelspace = false;
+            }
+        }
+
+        let clone_flags = CloneFlags::from_bits(clone_args.flags).unwrap();
+        block_wait_for_child = clone_flags.contains(CloneFlags::CLONE_VFORK);
+    }
+
+    // TODO: disable interrupts?, maybe scheduler interrupt mutex already does that for us
+    SCHEDULER.run_thread(child_tid);
+
+    if block_wait_for_child {
+        SCHEDULER.block_current_thread();
+    }
+
+    Ok(child_pid)
 }

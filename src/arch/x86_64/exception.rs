@@ -1,12 +1,9 @@
 use crate::{
     arch::x86_64::{get_cr2, get_current_pml4, paging::PageFlags},
-    mm::{
-        phys,
-        virt::{PAGE_SIZE_4KIB, VIRTUAL_MEMORY_MANAGER},
-        VirtAddr,
-    },
-    scheduler::thread::RegisterState,
+    mm::{phys, virt::PAGE_SIZE_4KIB, VirtAddr},
 };
+
+use super::registers::RegisterState;
 
 extern "C" {
     pub fn __excp_div_by_zero();
@@ -117,21 +114,23 @@ pub extern "C" fn excp_stack_segment_fault() -> ! {
 
 #[no_mangle]
 pub extern "C" fn excp_general_protection_fault(error_code: u64) -> ! {
-    println!("ERROR: {:#x}", error_code);
+    println!("ERROR GPF: {:#x}", error_code);
     println!("{}", unsafe { EXCEPTION_REG_STATE });
     panic!("GENERAL PROTECTION FAULT");
 }
 
 #[no_mangle]
 pub extern "C" fn excp_page_fault(error_code: u64) {
-    assert!(!VIRTUAL_MEMORY_MANAGER.is_locked());
-    let vmm = VIRTUAL_MEMORY_MANAGER.lock();
     let pml4 = get_current_pml4();
 
-    let page_fault_flags = PageFaultFlags::from_bits(error_code as u32).unwrap();
+    let page_fault_flags = unsafe { PageFaultFlags::from_bits_unchecked(error_code as u32) };
 
     let addr = VirtAddr::new(get_cr2());
-    let (_, mut page_flags) = vmm.get_page_entry_from_virt(pml4, addr).unwrap();
+
+    let mut page_flags = match pml4.get_page_entry_from_virt(addr) {
+        Some((_, page_flags)) => page_flags,
+        None => panic!("PAGE FAULT virt: {} flags: {:?}", addr, page_fault_flags),
+    };
 
     println!("{:?} ... {:?} {}", page_fault_flags, page_flags, addr);
 
@@ -140,7 +139,7 @@ pub extern "C" fn excp_page_fault(error_code: u64) {
         let page_phys = phys::alloc();
         page_flags.remove(PageFlags::ALLOC_ON_ACCESS);
         page_flags.insert(PageFlags::PRESENT);
-        vmm.map_4kib(pml4, page_virt, page_phys, page_flags);
+        pml4.map_4kib(page_virt, page_phys, page_flags);
         println!("alloc on access");
         return;
     }
@@ -154,6 +153,7 @@ pub extern "C" fn excp_page_fault(error_code: u64) {
     println!("ERROR FLAGS: {:?}", page_fault_flags);
     println!("PAGE FLAGS: {:?}", page_flags);
     println!("{}", unsafe { EXCEPTION_REG_STATE });
+
     if !page_present {
         println!("tried to access a non present page");
     } else if write_read_only_page {
@@ -161,6 +161,7 @@ pub extern "C" fn excp_page_fault(error_code: u64) {
     } else {
         unreachable!()
     }
+
     panic!("PAGE FAULT");
     // TODO: SIGSEGV
 }

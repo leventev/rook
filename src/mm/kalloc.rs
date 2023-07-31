@@ -8,11 +8,11 @@ use crate::{
 
 use super::{
     phys,
-    virt::{self, KERNEL_HEAP_START},
+    virt::{KERNEL_HEAP_START, PML4},
     VirtAddr,
 };
 
-const KERNEL_HEAP_BASE_SIZE: usize = 128 * 1024; // 128 KiB
+const KERNEL_HEAP_BASE_SIZE: usize = 1024 * 1024; // 1024 KiB
 const MINIMUM_REGION_SIZE: usize = 8;
 
 #[derive(Clone, Copy)]
@@ -60,7 +60,7 @@ impl KernelAllocatorInner {
     }
 
     fn extend_heap(&mut self, min_size: usize) -> usize {
-        let vmm = virt::VIRTUAL_MEMORY_MANAGER.lock();
+        let pml4 = get_current_pml4();
 
         let mut size = KERNEL_HEAP_BASE_SIZE;
         while size < min_size {
@@ -71,12 +71,7 @@ impl KernelAllocatorInner {
         for i in 0..pages {
             let virt = self.heap_end() + VirtAddr(i as u64 * 4096);
             let phys = phys::alloc();
-            vmm.map_4kib(
-                get_current_pml4(),
-                virt,
-                phys,
-                PageFlags::READ_WRITE | PageFlags::PRESENT,
-            );
+            pml4.map_4kib(virt, phys, PageFlags::READ_WRITE | PageFlags::PRESENT);
         }
 
         size
@@ -180,9 +175,8 @@ impl KernelAllocatorInner {
         region.allocated = false;
     }
 
-    pub fn init(&mut self) {
+    pub fn init(&mut self, pml4: &PML4) {
         assert!(!self.initialized);
-        let vmm = virt::VIRTUAL_MEMORY_MANAGER.lock();
 
         self.initialized = true;
         self.current_size = KERNEL_HEAP_BASE_SIZE;
@@ -191,12 +185,7 @@ impl KernelAllocatorInner {
         for i in 0..pages {
             let virt = KERNEL_HEAP_START + VirtAddr(i as u64 * 4096);
             let phys = phys::alloc();
-            vmm.map_4kib(
-                get_current_pml4(),
-                virt,
-                phys,
-                PageFlags::READ_WRITE | PageFlags::PRESENT,
-            );
+            pml4.map_4kib(virt, phys, PageFlags::READ_WRITE | PageFlags::PRESENT);
         }
 
         let head = KernelAllocatorInner::head();
@@ -225,7 +214,7 @@ unsafe impl GlobalAlloc for KernelAllocator {
     }
 }
 
-pub fn init() {
+pub fn init(pml4: &PML4) {
     let mut data = KERNEL_ALLOCATOR_INNER.lock();
-    data.init();
+    data.init(pml4);
 }

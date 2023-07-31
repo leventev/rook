@@ -51,25 +51,25 @@ bits 64
 %macro save_iret_data 1
     push rax
 
-    ; eip
+    ; rip
     mov rax, [rsp + (%1 + 1) * 8]
-    mov [EXCEPTION_REG_STATE + 19 * 8], rax
+    mov [EXCEPTION_REG_STATE + 0xB0], rax
 
     ; cs
     mov rax, [rsp + (%1 + 2) * 8]
-    mov [EXCEPTION_REG_STATE + 20 * 8], rax
+    mov [EXCEPTION_REG_STATE + 0xA0], rax
 
     ; rflags
     mov rax, [rsp + (%1 + 3) * 8]
-    mov [EXCEPTION_REG_STATE + 21 * 8], rax
+    mov [EXCEPTION_REG_STATE + 0xA8], rax
 
     ; rsp
     mov rax, [rsp + (%1 + 4) * 8]
-    mov [EXCEPTION_REG_STATE + 22 * 8], rax
+    mov [EXCEPTION_REG_STATE + 0xB8], rax
 
     ; ss
     mov rax, [rsp + (%1 + 5) * 8]
-    mov [EXCEPTION_REG_STATE + 23 * 8], rax
+    mov [EXCEPTION_REG_STATE + 0x98], rax
 
     pop rax
 

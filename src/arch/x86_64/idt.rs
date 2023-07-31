@@ -47,7 +47,7 @@ impl IDTEntry {
             // TODO: check for valid input?
             offset_low: (offset & 0xFFFF) as u16,
             segment_selector: segment as u16,
-            ist: ist,
+            ist,
             type_attributes: types.bits,
             offset_mid: ((offset >> 16) & 0xFFFF) as u16,
             offset_high: (offset >> 32) as u32,
@@ -108,7 +108,7 @@ pub fn init() {
 
     // cant make this as a constant unfortunately
     let kernel_code_type: IDTTypeAttr =
-        IDTTypeAttr::TRAP_GATE | IDTTypeAttr::PRESENT | IDTTypeAttr::RING0;
+        IDTTypeAttr::INTERRUPT_GATE | IDTTypeAttr::PRESENT | IDTTypeAttr::RING0;
 
     unsafe {
         for (i, addr) in exception_handlers.iter().enumerate() {

@@ -58,7 +58,6 @@ pub trait FileSystemInner: Debug {
         size: usize,
     ) -> Result<usize, FileSystemError>;
 
-
     fn stat(&self, path: &[String], stat_buf: &mut Stat) -> Result<(), FileSystemError>;
 
     // TODO: remove

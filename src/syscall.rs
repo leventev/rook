@@ -5,11 +5,12 @@ use crate::{
     arch::x86_64::{
         self, disable_interrupts, enable_interrupts,
         idt::{self, IDTTypeAttr},
+        registers::InterruptRegisters,
     },
     scheduler::{
         proc::{get_process, Process},
+        thread::ThreadInner,
         SCHEDULER,
-        thread::ThreadInner
     },
 };
 
@@ -48,35 +49,47 @@ static SYSCALL_TABLE: &[Syscall] = &[
 ];
 
 #[no_mangle]
-fn handle_syscall(
-    arg1: u64,
-    arg2: u64,
-    arg3: u64,
-    arg4: u64,
-    arg5: u64,
-    arg6: u64,
-    syscall_no: u64,
-) -> u64 {
-    let syscall_table_idx = syscall_no as usize;
-    assert!(syscall_table_idx < SYSCALL_TABLE.len());
+fn handle_syscall(interrupt_regs: &mut InterruptRegisters) {
+    let syscall_no: u64;
+    let args: [u64; 6];
 
-    let thread_lock = SCHEDULER.get_current_thread();
+    let thread_lock = SCHEDULER.get_current_thread().expect("No threads running");
+    let pid: usize;
     let process = {
         let mut current_thread = thread_lock.lock();
 
         if let ThreadInner::User(data) = &mut current_thread.inner {
+            syscall_no = interrupt_regs.general.rax;
+            args = [
+                interrupt_regs.general.rdi,
+                interrupt_regs.general.rsi,
+                interrupt_regs.general.rdx,
+                interrupt_regs.general.r10,
+                interrupt_regs.general.r8,
+                interrupt_regs.general.r9,
+            ];
+
+            data.user_regs.general = interrupt_regs.general;
+            data.user_regs.rip = interrupt_regs.iret.rip;
+            data.user_regs.rsp = interrupt_regs.iret.rsp;
+            data.user_regs.selectors.ss = interrupt_regs.iret.ss;
+            data.user_regs.selectors.cs = interrupt_regs.iret.cs;
+
             data.in_kernelspace = true;
+            pid = data.pid;
             get_process(data.pid).unwrap()
         } else {
             unreachable!()
         }
     };
 
+    let syscall_table_idx = syscall_no as usize;
+    assert!(syscall_table_idx < SYSCALL_TABLE.len());
+
     enable_interrupts();
 
     let syscall = &SYSCALL_TABLE[syscall_table_idx];
-    let args = [arg1, arg2, arg3, arg4, arg5, arg6];
-    println!("handle syscall {}", syscall.name);
+    println!("handle syscall PID: {} {} {:?}", pid, syscall.name, args);
 
     let res = (syscall.callback)(process, args);
     println!("syscall return {:#x}", res);
@@ -93,7 +106,7 @@ fn handle_syscall(
         }
     }
 
-    res
+    interrupt_regs.general.rax = res;
 }
 
 extern "C" {

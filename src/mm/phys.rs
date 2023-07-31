@@ -1,3 +1,4 @@
+use alloc::vec::Vec;
 use limine::{LimineMemmapResponse, LimineMemoryMapEntryType};
 
 use spin::Mutex;
@@ -5,11 +6,22 @@ use spin::Mutex;
 use crate::mm::PhysAddr;
 
 const MAX_SEGMENT_COUNT: usize = 16;
+pub const FRAME_SIZE: usize = 4096;
 // 16 GiB
-const FRAME_SIZE: usize = 4096;
 const MAX_FRAMES: usize = (16 * 1024 * 1024 * 1024) / FRAME_SIZE;
 const FRAMES_PER_BITMAP: usize = core::mem::size_of::<usize>() * 8;
 const BITMAP_SIZE: usize = MAX_FRAMES / FRAMES_PER_BITMAP;
+
+// TODO: locking?
+pub struct PageDescriptor {
+    used_count: usize,
+}
+
+impl PageDescriptor {
+    fn new() -> PageDescriptor {
+        PageDescriptor { used_count: 0 }
+    }
+}
 
 #[derive(Clone, Copy)]
 struct PhysSegment {
@@ -30,7 +42,70 @@ impl PhysSegment {
     }
 }
 
-struct PhysAllocator {
+pub struct PageDescriptorManager {
+    pub initialized: bool,
+    page_descriptors: Vec<PageDescriptor>,
+}
+
+macro_rules! get_page_desc {
+    ($self: ident, $addr: expr) => {{
+        let idx = Self::phys_addr_to_index($addr);
+        $self.page_descriptors.get(idx).unwrap()
+    }};
+}
+
+macro_rules! get_page_desc_mut {
+    ($self: ident, $addr: expr) => {{
+        let idx = Self::phys_addr_to_index($addr);
+        $self.page_descriptors.get_mut(idx).unwrap()
+    }};
+}
+
+// TODO: atomic page descriptor?
+impl PageDescriptorManager {
+    fn phys_addr_to_index(addr: PhysAddr) -> usize {
+        assert!(addr.is_aligned());
+        addr.0 as usize / FRAME_SIZE
+    }
+
+    fn init(&mut self, frame_count: usize) {
+        self.initialized = true;
+        self.page_descriptors
+            .resize_with(frame_count, PageDescriptor::new);
+    }
+
+    pub fn inc_used_count(&mut self, addr: PhysAddr) {
+        let page_desc = get_page_desc_mut!(self, addr);
+        page_desc.used_count += 1;
+    }
+
+    pub fn dec_used_count(&mut self, addr: PhysAddr) {
+        let page_desc = get_page_desc_mut!(self, addr);
+        if page_desc.used_count > 1 {
+            page_desc.used_count -= 1;
+        } else {
+            // TODO: logging
+            println!("warn: used_count blah blah blah");
+        }
+
+        if page_desc.used_count == 0 {
+            // TODO: free frame
+        }
+    }
+
+    fn get_used_count(&self, addr: PhysAddr) -> usize {
+        let page_desc = get_page_desc!(self, addr);
+        page_desc.used_count
+    }
+}
+
+pub static PAGE_DESCRIPTOR_MANAGER: Mutex<PageDescriptorManager> =
+    Mutex::new(PageDescriptorManager {
+        initialized: false,
+        page_descriptors: Vec::new(),
+    });
+
+pub struct PhysAllocator {
     segments: [PhysSegment; MAX_SEGMENT_COUNT],
     segment_count: usize,
     bitmap: [usize; BITMAP_SIZE],
@@ -41,16 +116,11 @@ struct PhysAllocator {
 impl PhysAllocator {
     pub fn init(&mut self, memmap: &LimineMemmapResponse) {
         let mut bitmap_base: usize = 0;
+        let mmap = memmap.entries.as_ptr();
         for i in 0..memmap.entry_count {
             let entry = unsafe {
                 // TODO: im not sure if theres a better way to do this
-                memmap
-                    .entries
-                    .as_ptr()
-                    .offset(i as isize)
-                    .as_ref()
-                    .expect("invalid memory map response")
-                    .as_ptr()
+                mmap.offset(i as isize)
                     .as_ref()
                     .expect("invalid memory map response")
             };
@@ -83,6 +153,23 @@ impl PhysAllocator {
         self.used_frames = self.total_frames;
 
         self.print_available_memory();
+    }
+
+    pub fn init_page_descriptors(&mut self) {
+        let last_seg = &self.segments[self.segment_count - 1];
+        let last_frame_addr = last_seg.base + last_seg.len * FRAME_SIZE;
+
+        let frame_count = last_frame_addr / FRAME_SIZE;
+        let size = frame_count * core::mem::size_of::<PageDescriptor>();
+
+        // FIXME: if the requested size is bigger than kalloc's initial heap size
+        // the kernel hangs
+        let mut pgm = PAGE_DESCRIPTOR_MANAGER.lock();
+        pgm.init(frame_count);
+
+        println!("{} bytes allocated for {} frames", size, frame_count);
+
+        // TODO: set currently used frames
     }
 
     fn print_available_memory(&self) {
@@ -214,24 +301,22 @@ impl PhysAllocator {
                 bitmap_idx += 1;
                 size_left -= FRAMES_PER_BITMAP;
                 continue;
+            } else if size_left < FRAMES_PER_BITMAP {
+                let size = usize::MAX >> (FRAMES_PER_BITMAP - size_left);
+                self.bitmap[bitmap_idx] |= size << bitmap_off;
+
+                return;
             } else {
-                if size_left < FRAMES_PER_BITMAP {
-                    let size = usize::MAX >> (FRAMES_PER_BITMAP - size_left);
-                    self.bitmap[bitmap_idx] |= size << bitmap_off;
+                self.bitmap[bitmap_idx] |= usize::MAX << bitmap_off;
 
-                    return;
-                } else {
-                    self.bitmap[bitmap_idx] |= usize::MAX << bitmap_off;
-
-                    size_left = FRAMES_PER_BITMAP - bitmap_off;
-                    bitmap_idx += 1;
-                    bitmap_off = 0;
-                }
+                size_left = FRAMES_PER_BITMAP - bitmap_off;
+                bitmap_idx += 1;
+                bitmap_off = 0;
             }
         }
     }
 
-    pub fn alloc_multiple(&mut self, size: usize, align: usize) -> PhysAddr {
+    fn alloc_multiple(&mut self, size: usize, align: usize) -> PhysAddr {
         assert!(align % 4096 == 0);
 
         let region = self.find_region(size, align);
@@ -254,7 +339,7 @@ impl PhysAllocator {
         addr
     }
 
-    pub const fn new() -> PhysAllocator {
+    pub const fn new_uninit() -> PhysAllocator {
         PhysAllocator {
             segments: [PhysSegment::new(); MAX_SEGMENT_COUNT],
             segment_count: 0,
@@ -265,14 +350,18 @@ impl PhysAllocator {
     }
 }
 
-static PHYS_ALLOCATOR: Mutex<PhysAllocator> = Mutex::new(PhysAllocator::new());
+pub static PHYS_ALLOCATOR: Mutex<PhysAllocator> = Mutex::new(PhysAllocator::new_uninit());
 
 pub fn init(memmap: &LimineMemmapResponse) {
     let mut allocator = PHYS_ALLOCATOR.lock();
     allocator.init(memmap);
 }
 
-/// Allocates multiple contiguous pages
+pub fn init_page_descriptors() {
+    let mut allocator = PHYS_ALLOCATOR.lock();
+    allocator.init_page_descriptors();
+}
+
 pub fn alloc_multiple_align(size: usize, align: usize) -> PhysAddr {
     let mut allocator = PHYS_ALLOCATOR.lock();
     allocator.alloc_multiple(size, align)

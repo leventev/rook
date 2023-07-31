@@ -1,6 +1,9 @@
-use core::{mem::ManuallyDrop, ops::{Deref, DerefMut}};
+use core::{
+    mem::ManuallyDrop,
+    ops::{Deref, DerefMut},
+};
 
-use crate::arch::x86_64::{enable_interrupts, interrupts_enabled, disable_interrupts};
+use crate::arch::x86_64::{disable_interrupts, enable_interrupts, interrupts_enabled};
 
 pub struct InterruptMutex<T> {
     mutex: spin::Mutex<T>,

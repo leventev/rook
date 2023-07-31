@@ -1,9 +1,13 @@
 use crate::{
-    arch::x86_64::{get_current_pml4, paging::PageFlags, disable_interrupts, enable_interrupts},
+    arch::x86_64::{
+        disable_interrupts, enable_interrupts, get_current_pml4,
+        paging::PageFlags,
+        syscall::proc::{CloneArgs, CloneFlags},
+    },
     fs::{self, FileDescriptor},
     mm::{
         phys,
-        virt::{self, switch_pml4, PAGE_SIZE_4KIB},
+        virt::{switch_pml4, PAGE_SIZE_4KIB, PML4},
         PhysAddr, VirtAddr,
     },
     posix::AT_FCWD,
@@ -88,7 +92,7 @@ pub struct Process {
     mapped_regions: Vec<MappedRegion>,
 
     pub main_thread: Weak<Mutex<Thread>>,
-    pml4_phys: PhysAddr,
+    pml4: PML4,
     file_descriptors: Vec<Option<Arc<Mutex<FileDescriptor>>>>,
     file_descriptors_allocated: usize,
 }
@@ -98,12 +102,15 @@ unsafe impl Send for Process {}
 static PROCESSES: Mutex<Vec<Option<Arc<Mutex<Process>>>>> = Mutex::new(Vec::new());
 
 impl Process {
-    fn new_base_process(cwd: Arc<Mutex<FileDescriptor>>) -> Arc<Mutex<Process>> {
+    fn create_base_process(cwd: Arc<Mutex<FileDescriptor>>) -> Arc<Mutex<Process>> {
         let mut processes = PROCESSES.lock();
         assert!(processes.len() == 0);
 
-        let pml4 = phys::alloc();
-        virt::copy_pml4_higher_half_entries(pml4, get_current_pml4());
+        let current_pml4 = get_current_pml4();
+        let new_pml4 = phys::alloc();
+        current_pml4.copy_pml4_higher_half_entries(new_pml4);
+
+        let new_pml4 = PML4::from_phys(new_pml4);
 
         let proc = Process {
             pid: 1,
@@ -116,7 +123,7 @@ impl Process {
             cwd,
             mapped_regions: Vec::new(),
             main_thread: SCHEDULER.create_user_thread(1),
-            pml4_phys: pml4,
+            pml4: new_pml4,
             file_descriptors: Vec::with_capacity(8),
             file_descriptors_allocated: 0,
         };
@@ -130,8 +137,6 @@ impl Process {
 
     // TODO: arch specific
     fn map_region(&self, region: &MappedRegion) {
-        let vmm = virt::VIRTUAL_MEMORY_MANAGER.lock();
-
         let addr_base = region.start as u64;
         for i in 0..region.pages {
             let virt = VirtAddr::new(addr_base + i as u64 * PAGE_SIZE_4KIB);
@@ -142,7 +147,7 @@ impl Process {
             };
 
             let flags = region.page_flags();
-            vmm.map_4kib(self.pml4_phys, virt, phys, flags);
+            self.pml4.map_4kib(virt, phys, flags);
         }
     }
 
@@ -271,7 +276,7 @@ impl Process {
         }
     }
 
-    /*pub fn clone_proc(&self, copy_page_tables: bool, copy_files: bool) -> Process {
+    pub fn clone_proc(&self, clone_args: &CloneArgs) -> Arc<Mutex<Process>> {
         let mut processes = PROCESSES.lock();
         let pid = match processes.iter().position(Option::is_none) {
             Some(x) => x,
@@ -283,7 +288,19 @@ impl Process {
             }
         } + 1;
 
-        Process {
+        let tid = self.main_thread.upgrade().unwrap().lock().id;
+
+        let clone_flags = CloneFlags::from_bits_truncate(clone_args.flags);
+
+        let pml4 = if clone_flags.contains(CloneFlags::CLONE_VM) {
+            self.pml4.clone()
+        } else {
+            let new_pml4 = phys::alloc();
+            self.pml4.copy_page_tables(new_pml4);
+            PML4::from_phys(new_pml4)
+        };
+
+        let proc = Process {
             pid,
             ppid: self.pid,
             pgid: self.pid,
@@ -295,12 +312,20 @@ impl Process {
             cwd: self.cwd.clone(),
             // TODO: mapped regions?
             mapped_regions: self.mapped_regions.clone(),
-            main_thread: ,
-            pml4_phys: (),
-            file_descriptors: (),
-            file_descriptors_allocated: (),
-        }
-    }*/
+            main_thread: SCHEDULER.copy_user_thread(pid, tid),
+
+            pml4,
+            // TODO: copy_files
+            file_descriptors: self.file_descriptors.clone(),
+            file_descriptors_allocated: self.file_descriptors_allocated,
+        };
+
+        let proc_arc = Arc::new(Mutex::new(proc));
+
+        processes[pid - 1] = Some(proc_arc.clone());
+
+        proc_arc
+    }
 }
 
 unsafe fn write_strings_on_stack(stack: *mut u64, strs: &[&str]) -> *mut u64 {
@@ -392,7 +417,7 @@ pub fn load_process(proc: &mut Process, exec_path: &str, args: &[&str], envvars:
     .iter()
     .filter(|seg| seg.p_type == PT_LOAD);
 
-    switch_pml4(proc.pml4_phys);
+    switch_pml4(&proc.pml4);
     // TODO: check if the segments are in userspace
     for ph in segments {
         println!("loading segment {} {}", ph.p_vaddr, ph.p_memsz);
@@ -425,9 +450,7 @@ pub fn load_process(proc: &mut Process, exec_path: &str, args: &[&str], envvars:
             let start = (ph.p_vaddr + ph.p_filesz) as *mut u8;
 
             let seg_mem = unsafe { slice::from_raw_parts_mut(start, mem_file_size_diff) };
-            for i in 0..mem_file_size_diff {
-                seg_mem[i] = 0;
-            }
+            seg_mem.fill(0);
         }
     }
 
@@ -450,11 +473,11 @@ pub fn load_process(proc: &mut Process, exec_path: &str, args: &[&str], envvars:
 
     if let ThreadInner::User(data) = &mut main_thread.inner {
         // argc, 1st arg
-        data.user_regs.rdi = args.len() as u64;
+        data.user_regs.general.rdi = args.len() as u64;
         // argv, 2nd arg
-        data.user_regs.rsi = argv;
+        data.user_regs.general.rsi = argv;
         // envp, 3rd arg
-        data.user_regs.rdx = envp;
+        data.user_regs.general.rdx = envp;
 
         // TODO: validate
         data.user_regs.rip = elf_file.ehdr.e_entry;
@@ -478,7 +501,7 @@ pub fn load_base_process(exec_path: &str) {
             *fs::open("/root").expect("Failed to open /root"),
         ));
 
-        let proc_lock = Process::new_base_process(cwd);
+        let proc_lock = Process::create_base_process(cwd);
         let mut proc = proc_lock.lock();
 
         // open console

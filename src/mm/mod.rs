@@ -4,7 +4,11 @@ pub mod virt;
 
 use core::{fmt, ops};
 
-use self::virt::HHDM_START;
+use alloc::slice;
+
+use crate::mm::virt::PAGE_ENTRIES;
+
+use self::{phys::FRAME_SIZE, virt::HHDM_START};
 
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -44,7 +48,7 @@ impl ops::Add<VirtAddr> for VirtAddr {
     type Output = VirtAddr;
 
     fn add(self, rhs: VirtAddr) -> Self::Output {
-        return VirtAddr::new(self.get().checked_add(rhs.get()).unwrap());
+        VirtAddr::new(self.get().checked_add(rhs.get()).unwrap())
     }
 }
 
@@ -52,7 +56,7 @@ impl ops::Sub<VirtAddr> for VirtAddr {
     type Output = VirtAddr;
 
     fn sub(self, rhs: VirtAddr) -> Self::Output {
-        return VirtAddr::new(self.get().checked_sub(rhs.get()).unwrap());
+        VirtAddr::new(self.get().checked_sub(rhs.get()).unwrap())
     }
 }
 
@@ -73,7 +77,7 @@ impl fmt::Display for VirtAddr {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PhysAddr(u64);
 
-impl PhysAddr {
+impl<'a> PhysAddr {
     pub fn get(&self) -> u64 {
         self.0
     }
@@ -86,11 +90,23 @@ impl PhysAddr {
         PhysAddr(0)
     }
 
+    pub fn is_aligned(&self) -> bool {
+        self.0 as usize % FRAME_SIZE == 0
+    }
+
     pub fn virt_addr(&self) -> VirtAddr {
         let hhdm_start = *HHDM_START.read();
 
         assert_ne!(hhdm_start, VirtAddr::zero());
         VirtAddr::new(hhdm_start.get() + self.0)
+    }
+
+    pub fn as_page_table(&self) -> &'a [u64] {
+        unsafe { slice::from_raw_parts(self.virt_addr().get() as *const u64, PAGE_ENTRIES) }
+    }
+
+    pub fn as_mut_page_table(&self) -> &'a mut [u64] {
+        unsafe { slice::from_raw_parts_mut(self.virt_addr().get() as *mut u64, PAGE_ENTRIES) }
     }
 }
 
@@ -98,7 +114,7 @@ impl ops::Add<PhysAddr> for PhysAddr {
     type Output = PhysAddr;
 
     fn add(self, rhs: PhysAddr) -> Self::Output {
-        return PhysAddr::new(self.get().checked_add(rhs.get()).unwrap());
+        PhysAddr::new(self.get().checked_add(rhs.get()).unwrap())
     }
 }
 
@@ -106,7 +122,7 @@ impl ops::Sub<PhysAddr> for PhysAddr {
     type Output = PhysAddr;
 
     fn sub(self, rhs: PhysAddr) -> Self::Output {
-        return PhysAddr::new(self.get().checked_sub(rhs.get()).unwrap());
+        PhysAddr::new(self.get().checked_sub(rhs.get()).unwrap())
     }
 }
 

@@ -161,7 +161,7 @@ pub struct Termios {
 #[derive(Clone, Copy, Debug)]
 pub struct Timespec {
     pub tv_sec: u64,
-    pub tv_nsec: u64
+    pub tv_nsec: u64,
 }
 
 #[repr(C, packed)]
@@ -178,5 +178,5 @@ pub struct Stat {
     pub st_mtim: Timespec,
     pub st_ctim: Timespec,
     pub st_blksize: u64,
-    pub st_blocks: u64
+    pub st_blocks: u64,
 }
