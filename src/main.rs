@@ -163,7 +163,7 @@ fn rust_panic(info: &core::panic::PanicInfo) -> ! {
     disable_interrupts();
 
     stacktrace::walk();
-    log!("{}", info);
+    error!("{}", info);
     hcf();
 }
 

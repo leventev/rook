@@ -138,6 +138,7 @@ impl Process {
     // TODO: arch specific
     fn map_region(&self, region: &MappedRegion) {
         let addr_base = region.start as u64;
+        let flags = region.page_flags();
         for i in 0..region.pages {
             let virt = VirtAddr::new(addr_base + i as u64 * PAGE_SIZE_4KIB);
             let phys = if region.flags.contains(MappedRegionFlags::ALLOC_ON_ACCESS) {
@@ -146,9 +147,14 @@ impl Process {
                 phys::alloc()
             };
 
-            let flags = region.page_flags();
             self.pml4.map_4kib(virt, phys, flags);
         }
+    }
+
+    fn clear_file_descriptors(&mut self) {
+        // TODO: maybe free the memory
+        self.file_descriptors.clear();
+        self.file_descriptors_allocated = 0;
     }
 
     // TODO: error
@@ -326,6 +332,150 @@ impl Process {
 
         proc_arc
     }
+
+    pub fn execve(&mut self, exec_path: &str, args: &[&str], envvars: &[&str]) -> Result<(), ()> {
+        self.clear_file_descriptors();
+        self.load_from_file(exec_path, args, envvars)?;
+        self.open_std_streams();
+
+        Ok(())
+    }
+
+    pub fn load_from_file(
+        &mut self,
+        exec_path: &str,
+        args: &[&str],
+        envvars: &[&str],
+    ) -> Result<(), ()> {
+        // TODO: shorten this function
+        let current_pml4 = get_current_pml4();
+        let new_pml4 = phys::alloc();
+        current_pml4.copy_pml4_higher_half_entries(new_pml4);
+        self.pml4 = PML4::from_phys(new_pml4);
+        // TODO: cleanup pml4 from fork
+
+        self.mapped_regions.clear();
+
+        let mut fd = fs::open(exec_path).unwrap();
+        let info = fd.file_info().unwrap();
+
+        // TODO: perhaps we can parse the ELF header without reading the whole file
+        // and instead later reading the file to userspace
+        // TODO: don't unnecessarily zero the memory
+        let mut buff: Box<[u8]> = vec![0; info.size].into_boxed_slice();
+        match fd.read(info.size, &mut buff[..]) {
+            Ok(_) => {}
+            Err(err) => panic!("{:?}", err),
+        };
+
+        let elf_file = match ElfBytes::<LittleEndian>::minimal_parse(&buff[..]) {
+            Ok(file) => file,
+            Err(_) => return Err(()),
+        };
+
+        let segments = match elf_file.segments() {
+            Some(segs) => segs,
+            None => return Err(()),
+        }
+        .iter()
+        .filter(|seg| seg.p_type == PT_LOAD);
+
+        switch_pml4(&self.pml4);
+        // TODO: check if the segments are in userspace
+        for ph in segments {
+            let mut flags = MappedRegionFlags::empty();
+            /*if ph.p_flags & PF_W > 0 {
+                flags |= MappedRegionFlags::READ_WRITE;
+            }*/
+            // FIXME: remove READ_WRITE flag after we are done copying the memory from the file
+            flags |= MappedRegionFlags::READ_WRITE;
+
+            if ph.p_flags & PF_X > 0 {
+                flags |= MappedRegionFlags::EXECUTE;
+            }
+
+            let seg_page_start = VirtAddr::new(ph.p_vaddr - ph.p_vaddr % PAGE_SIZE_4KIB);
+            let pages = utils::div_and_ceil(ph.p_memsz as usize, PAGE_SIZE_4KIB as usize);
+            self.add_region(seg_page_start.get() as usize, pages, flags)
+                .unwrap();
+
+            let file_seg_start = ph.p_offset as usize;
+            let file_seg_end = (ph.p_offset + ph.p_filesz) as usize;
+
+            let file_seg_mem =
+                unsafe { slice::from_raw_parts_mut(ph.p_vaddr as *mut u8, ph.p_filesz as usize) };
+            file_seg_mem.copy_from_slice(&buff[file_seg_start..file_seg_end]);
+
+            if ph.p_memsz != ph.p_filesz {
+                let mem_file_size_diff = (ph.p_memsz - ph.p_filesz) as usize;
+                let start = (ph.p_vaddr + ph.p_filesz) as *mut u8;
+
+                let seg_mem = unsafe { slice::from_raw_parts_mut(start, mem_file_size_diff) };
+                seg_mem.fill(0);
+            }
+        }
+
+        const STACK_BASE: u64 = 0xfffffd8000000000;
+        const STACK_SIZE_IN_PAGES: u64 = 16; // 64 KiB
+        const STACK_SIZE: u64 = STACK_SIZE_IN_PAGES * PAGE_SIZE_4KIB;
+
+        self.add_region(
+            STACK_BASE as usize,
+            STACK_SIZE_IN_PAGES as usize,
+            MappedRegionFlags::READ_WRITE,
+        )
+        .unwrap();
+
+        let stack_bottom = STACK_BASE + STACK_SIZE;
+        let (argv, envp) = unsafe { write_argv_envp(stack_bottom, args, envvars) };
+
+        assert!(argv % 8 == 0);
+        let stack_top = argv - argv % 16;
+
+        // FIXME: random deadlock caused by timer interrupt
+        // maybe disable interrupts here
+
+        let main_thread_lock = self.main_thread.upgrade().unwrap();
+        let mut main_thread = main_thread_lock.lock();
+
+        if let ThreadInner::User(data) = &mut main_thread.inner {
+            // argc, 1st arg
+            data.user_regs.general.rdi = args.len() as u64;
+            // argv, 2nd arg
+            data.user_regs.general.rsi = argv;
+            // envp, 3rd arg
+            data.user_regs.general.rdx = envp;
+
+            // TODO: validate
+            data.user_regs.rip = elf_file.ehdr.e_entry;
+            data.user_regs.rsp = stack_top;
+
+            data.pid = self.pid;
+        } else {
+            unreachable!()
+        }
+
+        Ok(())
+    }
+
+    fn open_std_streams(&mut self) {
+        // open console
+        let console_fd = fs::open("/dev/console").expect("Failed to open /dev/console");
+
+        // stdin
+        let fd = self
+            .new_fd(Some(0), Arc::new(Mutex::new(*console_fd)))
+            .unwrap();
+        assert!(fd == 0);
+
+        // stdout
+        let fd = self.dup_fd(None, fd).unwrap();
+        assert!(fd == 1);
+
+        // stderr
+        let fd = self.dup_fd(None, fd).unwrap();
+        assert!(fd == 2);
+    }
 }
 
 unsafe fn write_strings_on_stack(stack: *mut u64, strs: &[&str]) -> *mut u64 {
@@ -389,108 +539,6 @@ unsafe fn write_argv_envp(stack_bottom: u64, args: &[&str], envvars: &[&str]) ->
     (argv as u64, envp as u64)
 }
 
-pub fn load_process(proc: &mut Process, exec_path: &str, args: &[&str], envvars: &[&str]) -> bool {
-    debug!("load process {}", exec_path);
-    let main_thread_lock = proc.main_thread.upgrade().unwrap();
-    let mut main_thread = main_thread_lock.lock();
-
-    let mut fd = fs::open(exec_path).unwrap();
-    let info = fd.file_info().unwrap();
-
-    // TODO: perhaps we can parse the ELF header without reading the whole file
-    // and instead later reading the file to userspace
-    // TODO: don't unnecessarily zero the memory
-    let mut buff: Box<[u8]> = vec![0; info.size].into_boxed_slice();
-    if fd.read(info.size, &mut buff[..]).is_err() {
-        return false;
-    }
-
-    let elf_file = match ElfBytes::<LittleEndian>::minimal_parse(&buff[..]) {
-        Ok(file) => file,
-        Err(_) => return false,
-    };
-
-    let segments = match elf_file.segments() {
-        Some(segs) => segs,
-        None => return false,
-    }
-    .iter()
-    .filter(|seg| seg.p_type == PT_LOAD);
-
-    switch_pml4(&proc.pml4);
-    // TODO: check if the segments are in userspace
-    for ph in segments {
-        debug!("loading segment {} {}", ph.p_vaddr, ph.p_memsz);
-
-        let mut flags = MappedRegionFlags::empty();
-        /*if ph.p_flags & PF_W > 0 {
-            flags |= MappedRegionFlags::READ_WRITE;
-        }*/
-        // FIXME: remove READ_WRITE flag after we are done copying the memory from the file
-        flags |= MappedRegionFlags::READ_WRITE;
-
-        if ph.p_flags & PF_X > 0 {
-            flags |= MappedRegionFlags::EXECUTE;
-        }
-
-        let seg_page_start = VirtAddr::new(ph.p_vaddr - ph.p_vaddr % PAGE_SIZE_4KIB);
-        let pages = utils::div_and_ceil(ph.p_memsz as usize, PAGE_SIZE_4KIB as usize);
-        proc.add_region(seg_page_start.get() as usize, pages, flags)
-            .unwrap();
-
-        let file_seg_start = ph.p_offset as usize;
-        let file_seg_end = (ph.p_offset + ph.p_filesz) as usize;
-
-        let file_seg_mem =
-            unsafe { slice::from_raw_parts_mut(ph.p_vaddr as *mut u8, ph.p_filesz as usize) };
-        file_seg_mem.copy_from_slice(&buff[file_seg_start..file_seg_end]);
-
-        if ph.p_memsz != ph.p_filesz {
-            let mem_file_size_diff = (ph.p_memsz - ph.p_filesz) as usize;
-            let start = (ph.p_vaddr + ph.p_filesz) as *mut u8;
-
-            let seg_mem = unsafe { slice::from_raw_parts_mut(start, mem_file_size_diff) };
-            seg_mem.fill(0);
-        }
-    }
-
-    const STACK_BASE: u64 = 0xfffffd8000000000;
-    const STACK_SIZE_IN_PAGES: u64 = 16; // 64 KiB
-    const STACK_SIZE: u64 = STACK_SIZE_IN_PAGES * PAGE_SIZE_4KIB;
-
-    proc.add_region(
-        STACK_BASE as usize,
-        STACK_SIZE_IN_PAGES as usize,
-        MappedRegionFlags::READ_WRITE,
-    )
-    .unwrap();
-
-    let stack_bottom = STACK_BASE + STACK_SIZE;
-    let (argv, envp) = unsafe { write_argv_envp(stack_bottom, args, envvars) };
-
-    assert!(argv % 8 == 0);
-    let stack_top = argv - argv % 16;
-
-    if let ThreadInner::User(data) = &mut main_thread.inner {
-        // argc, 1st arg
-        data.user_regs.general.rdi = args.len() as u64;
-        // argv, 2nd arg
-        data.user_regs.general.rsi = argv;
-        // envp, 3rd arg
-        data.user_regs.general.rdx = envp;
-
-        // TODO: validate
-        data.user_regs.rip = elf_file.ehdr.e_entry;
-        data.user_regs.rsp = stack_top;
-
-        data.pid = proc.pid;
-    } else {
-        unreachable!()
-    }
-
-    true
-}
-
 pub fn load_base_process(exec_path: &str) {
     disable_interrupts();
 
@@ -504,31 +552,15 @@ pub fn load_base_process(exec_path: &str) {
         let proc_lock = Process::create_base_process(cwd);
         let mut proc = proc_lock.lock();
 
-        // open console
-        let console_fd = fs::open("/dev/console").expect("Failed to open /dev/console");
-
-        // stdin
-        let fd = proc
-            .new_fd(Some(0), Arc::new(Mutex::new(*console_fd)))
-            .unwrap();
-        assert!(fd == 0);
-
-        // stdout
-        let fd = proc.dup_fd(None, fd).unwrap();
-        assert!(fd == 1);
-
-        // stderr
-        let fd = proc.dup_fd(None, fd).unwrap();
-        assert!(fd == 2);
+        proc.open_std_streams();
 
         main_thread_id = proc.main_thread.upgrade().unwrap().lock().id;
 
         let argv = [<&str>::clone(&exec_path)];
         let envp = [];
 
-        if !load_process(&mut proc, exec_path, &argv[..], &envp[..]) {
-            panic!("failed to load base process");
-        }
+        proc.load_from_file(exec_path, &argv[..], &envp[..])
+            .expect("Failed to load base process");
     }
 
     SCHEDULER.run_thread(main_thread_id);

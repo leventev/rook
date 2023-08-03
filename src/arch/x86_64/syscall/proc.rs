@@ -1,8 +1,11 @@
-use alloc::{slice, sync::Arc};
+use core::ffi::{c_char, CStr};
+
+use alloc::{slice, string::String, sync::Arc, vec::Vec};
 use bitflags::bitflags;
 use spin::Mutex;
 
 use crate::{
+    arch::x86_64::disable_interrupts,
     posix::errno,
     scheduler::{
         self,
@@ -214,4 +217,81 @@ fn clone(
     }
 
     Ok(child_pid)
+}
+
+pub fn sys_execve(proc: Arc<Mutex<Process>>, args: [u64; 6]) -> u64 {
+    let path = args[0] as *const c_char;
+    let argv = args[1] as *const *const c_char;
+    let envp = args[2] as *const *const c_char;
+
+    match execve(proc, path, argv, envp) {
+        Ok(_) => 0,
+        Err(err) => err.as_errno(),
+    }
+}
+
+unsafe fn parse_c_char_array(arr: *const *const c_char) -> Vec<String> {
+    let mut vec = Vec::new();
+
+    // TODO: error handling
+    // TODO: work with bytes instead of strings
+
+    let mut ptr = arr;
+    let mut c_str = *ptr;
+    while !c_str.is_null() {
+        let str = CStr::from_ptr(c_str).to_str().unwrap();
+        let str = String::from(str);
+        vec.push(str);
+
+        ptr = ptr.add(1);
+        c_str = *ptr;
+    }
+
+    vec
+}
+
+fn execve(
+    proc: Arc<Mutex<Process>>,
+    path: *const c_char,
+    argv: *const *const c_char,
+    envp: *const *const c_char,
+) -> Result<(), SyscallProcError> {
+    // TODO: errors
+    disable_interrupts();
+    let mut p = proc.lock();
+
+    let path = unsafe { CStr::from_ptr(path) }.to_str().unwrap();
+
+    // TODO: optimize this
+    let argv_vec = unsafe { parse_c_char_array(argv) };
+    let argv_vec: Vec<&str> = argv_vec.iter().map(|s| s.as_str()).collect();
+
+    let envp_vec = unsafe { parse_c_char_array(envp) };
+    let envp_vec: Vec<&str> = envp_vec.iter().map(|s| s.as_str()).collect();
+
+    debug!("{} {:?} {:?}", path, argv_vec, envp_vec);
+
+    p.execve(path, &argv_vec, &envp_vec)
+        .expect("Failed to load process");
+
+    let main_thread_lock = p.main_thread.upgrade().unwrap();
+    let mut main_thread = main_thread_lock.lock();
+
+    // load_from_file already sets rip, rsp and (argc)rdi, (argv)rsi, (envp)rdx
+    if let ThreadInner::User(data) = &mut main_thread.inner {
+        data.user_regs.general.rax = 0;
+        data.user_regs.general.rbx = 0;
+        data.user_regs.general.rcx = 0;
+        data.user_regs.general.r8 = 0;
+        data.user_regs.general.r9 = 0;
+        data.user_regs.general.r10 = 0;
+        data.user_regs.general.r11 = 0;
+        data.user_regs.general.r12 = 0;
+        data.user_regs.general.r13 = 0;
+        data.user_regs.general.r14 = 0;
+        data.user_regs.general.r15 = 0;
+        data.user_regs.general.rbp = 0;
+    }
+
+    Ok(())
 }

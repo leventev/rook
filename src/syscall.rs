@@ -46,6 +46,7 @@ static SYSCALL_TABLE: &[Syscall] = &[
     Syscall::new("getpgid", x86_64::syscall::proc::sys_getpgid),
     Syscall::new("setpgid", x86_64::syscall::proc::sys_setpgid),
     Syscall::new("clone", x86_64::syscall::proc::sys_clone),
+    Syscall::new("execve", x86_64::syscall::proc::sys_execve),
 ];
 
 #[no_mangle]
@@ -100,6 +101,11 @@ fn handle_syscall(interrupt_regs: &mut InterruptRegisters) {
         let mut current_thread = thread_lock.lock();
 
         if let ThreadInner::User(data) = &mut current_thread.inner {
+            // TODO: only copy when necessary
+            interrupt_regs.general = data.user_regs.general;
+            interrupt_regs.iret.rip = data.user_regs.rip;
+            interrupt_regs.iret.rsp = data.user_regs.rsp;
+
             data.in_kernelspace = false;
         } else {
             unreachable!()
