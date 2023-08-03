@@ -84,8 +84,7 @@ impl PageDescriptorManager {
         if page_desc.used_count > 1 {
             page_desc.used_count -= 1;
         } else {
-            // TODO: logging
-            println!("warn: used_count blah blah blah");
+            warn!("used_count is 0 but we are trying to decrement it");
         }
 
         if page_desc.used_count == 0 {
@@ -167,7 +166,7 @@ impl PhysAllocator {
         let mut pgm = PAGE_DESCRIPTOR_MANAGER.lock();
         pgm.init(frame_count);
 
-        println!("{} bytes allocated for {} frames", size, frame_count);
+        log!("{} bytes allocated for {} frames", size, frame_count);
 
         // TODO: set currently used frames
     }
@@ -175,7 +174,7 @@ impl PhysAllocator {
     fn print_available_memory(&self) {
         for i in 0..self.segment_count {
             let segment = self.segments[i];
-            println!(
+            log!(
                 "segment {}: {:#x} {} pages bitmap base: {}",
                 i, segment.base, segment.len, segment.global_bitmap_base
             );
@@ -184,7 +183,7 @@ impl PhysAllocator {
         let mut kib = (self.total_frames * FRAME_SIZE) / 1024;
         let mib = kib / 1024;
         kib -= mib * 1024;
-        println!("available system memory: {} MiB {} KiB", mib, kib);
+        log!("available system memory: {} MiB {} KiB", mib, kib);
     }
 
     // find a free bitmap in segment
@@ -330,7 +329,7 @@ impl PhysAllocator {
 
         let addr = self.calculate_addr(region.0, region.1);
         if cfg!(pfa_debug) {
-            println!(
+            log!(
                 "PFA: allocated {} physical pages at {} align: {} segment: {} local index: {}",
                 size, addr, align, region.0, region.1
             );

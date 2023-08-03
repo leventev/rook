@@ -85,7 +85,7 @@ impl PML4 {
         flush_tlb_page(virt.get());
 
         if cfg!(vmm_debug) {
-            println!(
+            log!(
                 "VMM: mapped Virt {} -> Phys {} with flags {:?}",
                 virt, phys, flags
             );
@@ -130,7 +130,7 @@ impl PML4 {
         flush_tlb_page(virt.get());
 
         if cfg!(vmm_debug) {
-            println!("VMM: unmapped Virt {}", virt);
+            log!("VMM: unmapped Virt {}", virt);
         }
     }
 
@@ -224,7 +224,7 @@ impl PML4 {
     }
 
     pub fn copy_page_tables(&self, new_pml4: PhysAddr) {
-        println!("COPY PAGE TABLES");
+        log!("COPY PAGE TABLES");
 
         let this = self.0.as_mut_page_table();
         let other = new_pml4.as_mut_page_table();
@@ -286,7 +286,7 @@ impl PML4 {
             if ent == 0 {
                 continue;
             }
-            println!("{}: {:#x}", i, ent);
+            log!("{}: {:#x}", i, ent);
         }
     }
 }

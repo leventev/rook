@@ -464,7 +464,7 @@ fn init_controller(controllers: &mut Vec<ATAController>, pci_device: &PCIDevice)
                 };
 
                 if cfg!(ata_debug) {
-                    println!(
+                    log!(
                         "ATA: found device on the {} bus/{} disk with LBA count: {}",
                         bus_str, disk_str, identified_disk.size
                     );
@@ -488,7 +488,7 @@ fn init_controllers(devices: Vec<&PCIDevice>) {
             // TODO: support polling
             if pci_device.prog_if & ATAProgIf::DMA_SUPPORT.bits == 0 {
                 if cfg!(ata_debug) {
-                    println!("ATA: device does not support DMA");
+                    log!("ATA: device does not support DMA");
                 }
                 continue;
             }
@@ -516,6 +516,6 @@ pub fn init() -> bool {
 
 #[no_mangle]
 fn ata_interrupt() {
-    println!("ata interrupt");
+    log!("ata interrupt");
     loop {}
 }

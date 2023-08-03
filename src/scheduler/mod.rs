@@ -255,7 +255,7 @@ impl Scheduler {
 
         // spawn sentinel thread
         thread_data.create_kernel_thread(|| loop {
-            println!("sentinel thread");
+            debug!("in sentinel thread");
             loop {
                 x86_64::enable_interrupts();
                 unsafe {

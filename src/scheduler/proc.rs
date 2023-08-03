@@ -158,7 +158,7 @@ impl Process {
         pages: usize,
         flags: MappedRegionFlags,
     ) -> Result<(), ()> {
-        println!(
+        debug!(
             "add region {:#x} {:#x} pages {:?}",
             start_addr, pages, flags
         );
@@ -390,7 +390,7 @@ unsafe fn write_argv_envp(stack_bottom: u64, args: &[&str], envvars: &[&str]) ->
 }
 
 pub fn load_process(proc: &mut Process, exec_path: &str, args: &[&str], envvars: &[&str]) -> bool {
-    println!("load process {}", exec_path);
+    debug!("load process {}", exec_path);
     let main_thread_lock = proc.main_thread.upgrade().unwrap();
     let mut main_thread = main_thread_lock.lock();
 
@@ -420,7 +420,7 @@ pub fn load_process(proc: &mut Process, exec_path: &str, args: &[&str], envvars:
     switch_pml4(&proc.pml4);
     // TODO: check if the segments are in userspace
     for ph in segments {
-        println!("loading segment {} {}", ph.p_vaddr, ph.p_memsz);
+        debug!("loading segment {} {}", ph.p_vaddr, ph.p_memsz);
 
         let mut flags = MappedRegionFlags::empty();
         /*if ph.p_flags & PF_W > 0 {

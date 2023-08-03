@@ -127,7 +127,6 @@ impl SchedulerThreadData {
                 // push the address of remove_running_thread on the stack so the thread
                 // will return to that address and get killed
                 data.regs.rsp = thread.stack_bottom;
-                println!("{:#x}", thread.stack_bottom);
                 data.regs.rsp -= core::mem::size_of::<u64>() as u64;
                 unsafe {
                     *(data.regs.rsp as *mut u64) = remove_current_thread_wrapper as usize as u64;
@@ -145,7 +144,7 @@ impl SchedulerThreadData {
 
         self.change_thread_state(tid, ThreadState::Running);
 
-        println!("spawn kernel thread: {:#x}", tid.0);
+        debug!("spawn kernel thread: {:#x}", tid.0);
         weak
     }
 
@@ -175,7 +174,7 @@ impl SchedulerThreadData {
         let weak = Arc::downgrade(&thread);
         self.threads[tid.0] = Some(thread);
 
-        println!("spawn user thread: {:#x}", tid.0);
+        debug!("spawn user thread: {:#x}", tid.0);
         weak
     }
 

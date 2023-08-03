@@ -8,14 +8,14 @@ pub fn walk() {
         asm!("mov {}, rbp", out(reg) rbp);
     }
 
-    println!("stack trace:");
+    log!("stack trace:");
 
     for _ in 0..MAX_FRAMES {
         if rbp == 0 {
             return;
         }
         let func = unsafe { *(rbp as *const usize).offset(1) };
-        println!("  {:#x}", func);
+        log!("  {:#x}", func);
         rbp = unsafe { *(rbp as *const usize) };
     }
 }

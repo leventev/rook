@@ -15,7 +15,7 @@ impl fmt::Display for Time {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let seconds = self.seconds + self.milliseconds / 1000;
         let milliseconds = self.milliseconds % 1000;
-        write!(f, "{: >6}.{:0>3}", seconds, milliseconds)
+        write!(f, "{}.{:0>3}", seconds, milliseconds)
     }
 }
 

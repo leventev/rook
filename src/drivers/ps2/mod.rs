@@ -32,7 +32,7 @@ pub fn init() -> bool {
             }
         }
         Err(err) => {
-            println!("PS2: initialization failed: {:?}", err);
+            log!("PS2: initialization failed: {:?}", err);
             false
         }
     };

@@ -99,7 +99,7 @@ pub fn register_blk(
     operations: Box<dyn BlockOperations>,
 ) {
     let mut blk_dev_manager = BLOCK_DEVICE_MANAGER.lock();
-    println!("BLK: added block device {}", name);
+    log!("BLK: added block device {}", name);
 
     let minor = blk_dev_manager
         .block_devices
@@ -122,7 +122,7 @@ pub fn register_blk(
         .collect::<Vec<Rc<Partition>>>();
 
     for part in parts.iter() {
-        println!("{:?}", part);
+        log!("{:?}", part);
     }
 
     blk_dev_manager.block_devices.push(rc);
@@ -229,7 +229,7 @@ impl Partition {
 }
 
 fn parse_partition_table(dev: Rc<BlockDevice>) -> Vec<Partition> {
-    println!("parse partition table {}", dev.name);
+    log!("parse partition table {}", dev.name);
 
     let mut buff: [u8; 512] = [0; 512];
 

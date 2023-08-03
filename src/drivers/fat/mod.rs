@@ -154,7 +154,7 @@ impl FATFileSystem {
         };
 
         if bios_parameter_data.root_dir_entries != 0 {
-            println!("FAT: non FAT-32 FAT filesystem detected");
+            log!("FAT: non FAT-32 FAT filesystem detected");
             return Err(FileSystemError::FailedToInitializeFileSystem);
         }
 

@@ -49,12 +49,12 @@ impl KernelModule {
         if success {
             self.load_state = KernelModuleLoadStatus::Loaded;
             if cfg!(driver_manager_debug) {
-                println!("DRIVER MANAGER: loaded {} module", self.name);
+                log!("DRIVER MANAGER: loaded {} module", self.name);
             }
         } else {
             self.load_state = KernelModuleLoadStatus::LoadFailed;
             if cfg!(driver_manager_debug) {
-                println!("DRIVER MANAGER: failed to load {} module", self.name);
+                log!("DRIVER MANAGER: failed to load {} module", self.name);
             }
         }
     }

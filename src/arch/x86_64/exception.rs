@@ -114,8 +114,8 @@ pub extern "C" fn excp_stack_segment_fault() -> ! {
 
 #[no_mangle]
 pub extern "C" fn excp_general_protection_fault(error_code: u64) -> ! {
-    println!("ERROR GPF: {:#x}", error_code);
-    println!("{}", unsafe { EXCEPTION_REG_STATE });
+    log!("ERROR GPF: {:#x}", error_code);
+    log!("{}", unsafe { EXCEPTION_REG_STATE });
     panic!("GENERAL PROTECTION FAULT");
 }
 
@@ -132,15 +132,12 @@ pub extern "C" fn excp_page_fault(error_code: u64) {
         None => panic!("PAGE FAULT virt: {} flags: {:?}", addr, page_fault_flags),
     };
 
-    println!("{:?} ... {:?} {}", page_fault_flags, page_flags, addr);
-
     if page_flags.contains(PageFlags::ALLOC_ON_ACCESS) {
         let page_virt = addr - VirtAddr::new(addr.get() % PAGE_SIZE_4KIB);
         let page_phys = phys::alloc();
         page_flags.remove(PageFlags::ALLOC_ON_ACCESS);
         page_flags.insert(PageFlags::PRESENT);
         pml4.map_4kib(page_virt, page_phys, page_flags);
-        println!("alloc on access");
         return;
     }
 
@@ -150,14 +147,14 @@ pub extern "C" fn excp_page_fault(error_code: u64) {
     let write_read_only_page = page_fault_flags.contains(PageFaultFlags::WRITE)
         && !page_flags.contains(PageFlags::READ_WRITE);
 
-    println!("ERROR FLAGS: {:?}", page_fault_flags);
-    println!("PAGE FLAGS: {:?}", page_flags);
-    println!("{}", unsafe { EXCEPTION_REG_STATE });
+    error!("ERROR FLAGS: {:?}", page_fault_flags);
+    error!("PAGE FLAGS: {:?}", page_flags);
+    error!("{}", unsafe { EXCEPTION_REG_STATE });
 
     if !page_present {
-        println!("tried to access a non present page");
+        error!("tried to access a non present page");
     } else if write_read_only_page {
-        println!("tried to write to a read-only page");
+        error!("tried to write to a read-only page");
     } else {
         unreachable!()
     }

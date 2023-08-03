@@ -234,7 +234,7 @@ impl VirtualFileSystem {
         }
 
         if cfg!(vfs_debug) {
-            println!(
+            log!(
                 "VFS: registered {} {:?} file system skeleton",
                 skel.name, skel.new
             );
@@ -246,7 +246,7 @@ impl VirtualFileSystem {
 
     fn mount_special(&mut self, path: &str, filesystem: FileSystem) -> Result<(), FileSystemError> {
         if cfg!(vfs_debug) {
-            println!(
+            log!(
                 "VFS: attempting to mount {} filesystem to {} ",
                 filesystem.name, path
             );
@@ -285,7 +285,7 @@ impl VirtualFileSystem {
                     blk_dev.name, blk_dev.major, blk_dev.minor, part.part_idx
                 )
             };
-            println!(
+            log!(
                 "VFS: attempting to mount {}({}) filesystem to {} ",
                 fs_name, blk_dev_name, path
             );

@@ -89,10 +89,10 @@ fn handle_syscall(interrupt_regs: &mut InterruptRegisters) {
     enable_interrupts();
 
     let syscall = &SYSCALL_TABLE[syscall_table_idx];
-    println!("handle syscall PID: {} {} {:?}", pid, syscall.name, args);
+    debug!("handle syscall PID: {} {} {:?}", pid, syscall.name, args);
 
     let res = (syscall.callback)(process, args);
-    println!("syscall return {:#x}", res);
+    debug!("syscall return {:#x}", res);
 
     disable_interrupts();
 

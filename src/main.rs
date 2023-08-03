@@ -9,12 +9,13 @@
 #![feature(new_uninit)]
 #![feature(const_ptr_as_ref)]
 #![feature(const_option)]
+#![feature(format_args_nl)]
 
 #[macro_use]
 extern crate alloc;
 
 #[macro_use]
-mod io;
+mod logger;
 mod arch;
 mod blk;
 mod console;
@@ -68,7 +69,7 @@ fn vmm_setup() {
         .get()
         .expect("Framebuffer request failed");
 
-    println!("{} framebuffers available", framebuffer.framebuffer_count);
+    log!("{} framebuffers available", framebuffer.framebuffer_count);
     assert!(framebuffer.framebuffer_count > 0);
     let framebuffers = unsafe {
         slice::from_raw_parts_mut(
@@ -154,7 +155,6 @@ fn main_init_thread() {
 
     syscall::init();
 
-    println!("main init thread");
     proc::load_base_process("/bin/dash");
 }
 
@@ -163,7 +163,7 @@ fn rust_panic(info: &core::panic::PanicInfo) -> ! {
     disable_interrupts();
 
     stacktrace::walk();
-    println!("{}", info);
+    log!("{}", info);
     hcf();
 }
 
