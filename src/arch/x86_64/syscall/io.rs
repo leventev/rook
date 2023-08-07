@@ -310,3 +310,26 @@ fn lseek(
         Err(err) => Err(err.as_syscall_io_error()),
     }
 }
+
+pub fn sys_chdir(proc: Arc<Mutex<Process>>, args: [u64; 6]) -> u64 {
+    let path = args[0] as *const c_char;
+
+    match chdir(proc, path) {
+        Ok(n) => n as u64,
+        Err(err) => err.as_errno(),
+    }
+}
+
+fn chdir(proc: Arc<Mutex<Process>>, path: *const c_char) -> Result<usize, SyscallIOError> {
+    let mut p = proc.lock();
+
+    let path = unsafe { CStr::from_ptr(path) }.to_str().unwrap();
+    let new_cwd = Arc::new(Mutex::new(match fs::open(path) {
+        Ok(fd) => *fd,
+        Err(err) => return Err(err.as_syscall_io_error()),
+    }));
+
+    p.change_cwd(new_cwd);
+
+    Ok(0)
+}

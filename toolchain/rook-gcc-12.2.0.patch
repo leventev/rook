@@ -38,7 +38,7 @@ diff -ruN gcc-12.2.0/gcc/config/rook.h gcc-12.2.0-diff/gcc/config/rook.h
 +/* Files that are linked before user code.
 +   The %s tells GCC to look for these files in the library directory. */
 +#undef STARTFILE_SPEC
-+#define STARTFILE_SPEC "crt0.o%s crti.o%s crtbegin.o%s"
++#define STARTFILE_SPEC "%{!shared:crt0.o%s} crti.o%s crtbegin.o%s"
 +
 +/* Files that are linked after user code. */
 +#undef ENDFILE_SPEC

@@ -269,8 +269,6 @@ fn execve(
     let envp_vec = unsafe { parse_c_char_array(envp) };
     let envp_vec: Vec<&str> = envp_vec.iter().map(|s| s.as_str()).collect();
 
-    debug!("{} {:?} {:?}", path, argv_vec, envp_vec);
-
     p.execve(path, &argv_vec, &envp_vec)
         .expect("Failed to load process");
 

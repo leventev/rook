@@ -157,6 +157,11 @@ impl Process {
         self.file_descriptors_allocated = 0;
     }
 
+    pub fn change_cwd(&mut self, cwd: Arc<Mutex<FileDescriptor>>) {
+        // TODO: the old cwd gets dropped here right?
+        self.cwd = cwd;
+    }
+
     // TODO: error
     pub fn add_region(
         &mut self,
