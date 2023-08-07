@@ -440,6 +440,7 @@ impl FATFileSystem {
         let root_dir_start_cluster = self.root_cluster;
         let mut start_cluster = root_dir_start_cluster;
 
+        debug!("{:?} {}", path, path.len());
         for part in &path[..path.len() - 1] {
             let dir_ent = self.find_dir_ent(start_cluster, part.as_str());
             match dir_ent {
@@ -461,6 +462,10 @@ impl FATFileSystem {
 
 impl FileSystemInner for FATFileSystem {
     fn open(&self, path: &[String]) -> Result<FSInode, fs::FileSystemError> {
+        if path.is_empty() {
+            return Ok(FSInode::new(0));
+        }
+
         match self.find_file(path) {
             Some(file) => {
                 let inode =
@@ -472,6 +477,12 @@ impl FileSystemInner for FATFileSystem {
     }
 
     fn stat(&self, path: &[String], stat_buf: &mut Stat) -> Result<(), FileSystemError> {
+        if path.is_empty() {
+            stat_buf.st_ino = 0;
+            stat_buf.st_size = 0;
+            return Ok(());
+        }
+
         match self.find_file(path) {
             Some(file) => {
                 let inode =

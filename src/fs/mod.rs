@@ -33,6 +33,12 @@ pub enum FileSystemError {
     IsDirectory,
 }
 
+pub enum SeekWhence {
+    Set,
+    Cur,
+    End,
+}
+
 pub trait FileSystemInner: Debug {
     // Opens a file, returns the inode
     fn open(&self, path: &[String]) -> Result<FSInode, FileSystemError>;
@@ -95,10 +101,6 @@ impl MountPoint {
 impl PartialEq for MountPoint {
     fn eq(&self, other: &Self) -> bool {
         self.path == other.path
-    }
-
-    fn ne(&self, other: &Self) -> bool {
-        self.path != other.path
     }
 }
 
@@ -170,7 +172,7 @@ impl FileDescriptor {
             return Err(FileSystemError::InvalidBuffer);
         }
 
-        if buff.len() == 0 {
+        if buff.is_empty() {
             return Ok(0);
         }
 
@@ -193,6 +195,19 @@ impl FileDescriptor {
     pub fn ioctl(&self, req: usize, arg: usize) -> Result<usize, FileSystemError> {
         let mount = self.vnode.mount.upgrade().unwrap();
         mount.fs.inner.ioctl(self.vnode.inode, req, arg)
+    }
+
+    pub fn lseek(&mut self, offset: usize, whence: SeekWhence) -> Result<usize, FileSystemError> {
+        // TODO: normal SeekWhence::End
+        let new_off = match whence {
+            SeekWhence::Set => offset,
+            SeekWhence::Cur => self.offset + offset,
+            SeekWhence::End => self.file_info().unwrap().size + offset,
+        };
+
+        self.offset = new_off;
+
+        Ok(new_off)
     }
 }
 
@@ -236,7 +251,8 @@ impl VirtualFileSystem {
         if cfg!(vfs_debug) {
             log!(
                 "VFS: registered {} {:?} file system skeleton",
-                skel.name, skel.new
+                skel.name,
+                skel.new
             );
         }
 
@@ -248,7 +264,8 @@ impl VirtualFileSystem {
         if cfg!(vfs_debug) {
             log!(
                 "VFS: attempting to mount {} filesystem to {} ",
-                filesystem.name, path
+                filesystem.name,
+                path
             );
         }
 
@@ -287,7 +304,9 @@ impl VirtualFileSystem {
             };
             log!(
                 "VFS: attempting to mount {}({}) filesystem to {} ",
-                fs_name, blk_dev_name, path
+                fs_name,
+                blk_dev_name,
+                path
             );
         }
 

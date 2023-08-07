@@ -4,7 +4,7 @@ use alloc::{slice, sync::Arc};
 use spin::Mutex;
 
 use crate::{
-    fs::{self, FileSystemError},
+    fs::{self, FileSystemError, SeekWhence},
     posix::{
         errno, FileOpenFlags, FileOpenMode, Stat, F_DUPFD, F_GETFD, F_GETFL, F_SETFD, F_SETFL,
     },
@@ -15,6 +15,7 @@ use crate::{
 enum SyscallIOError {
     InvalidFD,
     InvalidPath,
+    InvalidWhence,
 }
 
 impl SyscallIOError {
@@ -22,7 +23,7 @@ impl SyscallIOError {
         let val = match self {
             SyscallIOError::InvalidFD => errno::EBADF,
             // TODO: dirname error
-            SyscallIOError::InvalidPath => errno::EINVAL,
+            SyscallIOError::InvalidPath | SyscallIOError::InvalidWhence => errno::EINVAL,
         };
 
         (-val) as u64
@@ -230,10 +231,12 @@ fn fcntl(
             Ok(0)
         }
         F_GETFL => {
-            unreachable!()
+            warn!("fcntl F_GETFL not implemented");
+            Ok(0)
         }
         F_SETFL => {
-            unreachable!()
+            warn!("fcntl F_SETFL not implemented");
+            Ok(0)
         }
         _ => unreachable!(),
     }
@@ -265,6 +268,44 @@ fn ioctl(
 
     let file_desc = file_lock.lock();
     match file_desc.ioctl(req, arg) {
+        Ok(ret) => Ok(ret),
+        Err(err) => Err(err.as_syscall_io_error()),
+    }
+}
+
+pub fn sys_lseek(proc: Arc<Mutex<Process>>, args: [u64; 6]) -> u64 {
+    let fd = args[0] as usize;
+    let offset = args[1] as usize;
+    let whence = args[2] as usize;
+
+    match lseek(proc, fd, offset, whence) {
+        Ok(n) => n as u64,
+        Err(err) => err.as_errno(),
+    }
+}
+
+fn lseek(
+    proc: Arc<Mutex<Process>>,
+    fd: usize,
+    offset: usize,
+    whence: usize,
+) -> Result<usize, SyscallIOError> {
+    let p = proc.lock();
+
+    let file_lock = match p.get_fd(fd) {
+        Some(f) => f,
+        None => return Err(SyscallIOError::InvalidFD),
+    };
+
+    let whence = match whence {
+        0 => SeekWhence::Set,
+        1 => SeekWhence::Cur,
+        2 => SeekWhence::End,
+        _ => return Err(SyscallIOError::InvalidWhence),
+    };
+
+    let mut file_desc = file_lock.lock();
+    match file_desc.lseek(offset, whence) {
         Ok(ret) => Ok(ret),
         Err(err) => Err(err.as_syscall_io_error()),
     }

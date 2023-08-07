@@ -466,7 +466,9 @@ fn init_controller(controllers: &mut Vec<ATAController>, pci_device: &PCIDevice)
                 if cfg!(ata_debug) {
                     log!(
                         "ATA: found device on the {} bus/{} disk with LBA count: {}",
-                        bus_str, disk_str, identified_disk.size
+                        bus_str,
+                        disk_str,
+                        identified_disk.size
                     );
                 }
                 disks.push(identified_disk);

@@ -53,9 +53,9 @@ copy-libc-headers: sysroot
 libc: copy-libc-headers
 #	cp include/ark/arch/x86/syscalls.h libc/include/public
 # TODO: remove ^
-	cd libc && $(MAKE)
-	cp libc/bin/libc.a $(SYSROOT)/usr/lib/
-	cp libc/bin/arch/$(ARCH)/crt0.s.o $(SYSROOT)/usr/lib/crt0.o
+	cd libc && $(MAKE) && $(MAKE) crt0
+	cp libc/bin/libc.a $(SYSROOT)/usr/lib/libc.a
+	cp libc/bin/crt0.o $(SYSROOT)/usr/lib/crt0.o
 
 build-binutils:
 	mkdir -p binutils_build

@@ -47,6 +47,7 @@ static SYSCALL_TABLE: &[Syscall] = &[
     Syscall::new("setpgid", x86_64::syscall::proc::sys_setpgid),
     Syscall::new("clone", x86_64::syscall::proc::sys_clone),
     Syscall::new("execve", x86_64::syscall::proc::sys_execve),
+    Syscall::new("lseek", x86_64::syscall::io::sys_lseek),
 ];
 
 #[no_mangle]

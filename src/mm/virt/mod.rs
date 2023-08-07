@@ -87,7 +87,9 @@ impl PML4 {
         if cfg!(vmm_debug) {
             log!(
                 "VMM: mapped Virt {} -> Phys {} with flags {:?}",
-                virt, phys, flags
+                virt,
+                phys,
+                flags
             );
         }
     }

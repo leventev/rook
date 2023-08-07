@@ -176,7 +176,10 @@ impl PhysAllocator {
             let segment = self.segments[i];
             log!(
                 "segment {}: {:#x} {} pages bitmap base: {}",
-                i, segment.base, segment.len, segment.global_bitmap_base
+                i,
+                segment.base,
+                segment.len,
+                segment.global_bitmap_base
             );
         }
 
@@ -331,7 +334,11 @@ impl PhysAllocator {
         if cfg!(pfa_debug) {
             log!(
                 "PFA: allocated {} physical pages at {} align: {} segment: {} local index: {}",
-                size, addr, align, region.0, region.1
+                size,
+                addr,
+                align,
+                region.0,
+                region.1
             );
         }
 
