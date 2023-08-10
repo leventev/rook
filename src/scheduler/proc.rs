@@ -12,7 +12,7 @@ use crate::{
     },
     posix::AT_FCWD,
     scheduler::{ThreadInner, SCHEDULER},
-    utils,
+    utils::{self, slot_allocator::SlotAllocator},
 };
 use alloc::{
     boxed::Box,
@@ -45,6 +45,8 @@ pub struct MappedRegion {
     end: usize,
     flags: MappedRegionFlags,
 }
+
+const MAX_PROCESSES: usize = 32;
 
 impl MappedRegion {
     const fn new(start: usize, pages: usize, flags: MappedRegionFlags) -> MappedRegion {
@@ -93,18 +95,17 @@ pub struct Process {
 
     pub main_thread: Weak<Mutex<Thread>>,
     pml4: PML4,
-    file_descriptors: Vec<Option<Arc<Mutex<FileDescriptor>>>>,
-    file_descriptors_allocated: usize,
+    file_descriptors: SlotAllocator<Arc<Mutex<FileDescriptor>>>,
 }
 
 unsafe impl Send for Process {}
 
-static PROCESSES: Mutex<Vec<Option<Arc<Mutex<Process>>>>> = Mutex::new(Vec::new());
+static PROCESSES: Mutex<SlotAllocator<Arc<Mutex<Process>>>> = Mutex::new(SlotAllocator::new(None));
 
 impl Process {
     fn create_base_process(cwd: Arc<Mutex<FileDescriptor>>) -> Arc<Mutex<Process>> {
         let mut processes = PROCESSES.lock();
-        assert!(processes.len() == 0);
+        assert!(processes.allocated_slots() == 0);
 
         let current_pml4 = get_current_pml4();
         let new_pml4 = phys::alloc();
@@ -124,13 +125,12 @@ impl Process {
             mapped_regions: Vec::new(),
             main_thread: SCHEDULER.create_user_thread(1),
             pml4: new_pml4,
-            file_descriptors: Vec::with_capacity(8),
-            file_descriptors_allocated: 0,
+            file_descriptors: SlotAllocator::new(None),
         };
 
         let proc_arc = Arc::new(Mutex::new(proc));
 
-        processes.push(Some(proc_arc.clone()));
+        processes.allocate(Some(0), proc_arc.clone());
 
         proc_arc
     }
@@ -152,9 +152,7 @@ impl Process {
     }
 
     fn clear_file_descriptors(&mut self) {
-        // TODO: maybe free the memory
         self.file_descriptors.clear();
-        self.file_descriptors_allocated = 0;
     }
 
     pub fn change_cwd(&mut self, cwd: Arc<Mutex<FileDescriptor>>) {
@@ -198,50 +196,16 @@ impl Process {
         hint: Option<usize>,
         file_descriptor: Arc<Mutex<FileDescriptor>>,
     ) -> Result<usize, ()> {
-        assert!(self.file_descriptors_allocated <= self.file_descriptors.capacity());
-
-        let fd = match hint {
-            Some(n) => {
-                // check if the hint is already in use
-                if n < self.file_descriptors.len() && self.file_descriptors[n].is_some() {
-                    return Err(());
-                }
-
-                // if a hint was provided allocate enough space then return
-                let mut size = self.file_descriptors.capacity();
-                while size < n {
-                    size *= 2;
-                }
-                self.file_descriptors.resize_with(size, || None);
-                n
-            }
-            None => {
-                if self.file_descriptors_allocated == self.file_descriptors.capacity() {
-                    // if there is not enough space, double the vector size
-                    let old_size = self.file_descriptors.capacity();
-                    let size = old_size * 2;
-                    self.file_descriptors.resize_with(size, || None);
-
-                    old_size
-                } else {
-                    // else find the first free fd
-                    self.file_descriptors
-                        .iter()
-                        .position(Option::is_none)
-                        .unwrap()
-                }
-            }
-        };
-
-        self.file_descriptors[fd] = Some(file_descriptor);
-        self.file_descriptors_allocated += 1;
-        Ok(fd)
+        match self.file_descriptors.allocate(hint, file_descriptor) {
+            Some(fd) => Ok(fd),
+            None => Err(()),
+        }
     }
 
     // TODO: error
     pub fn dup_fd(&mut self, hint: Option<usize>, fd: usize) -> Result<usize, ()> {
-        let file_desc = match self.file_descriptors[fd] {
-            Some(ref f) => {
+        let file_desc = match self.file_descriptors.get(fd) {
+            Some(f) => {
                 let val = Mutex::new(((**f).lock()).clone());
                 Arc::new(val)
             }
@@ -252,13 +216,11 @@ impl Process {
     }
 
     pub fn free_fd(&mut self, fd: usize) {
-        assert!(fd < self.file_descriptors.capacity());
-        assert!(self.file_descriptors[fd].is_some());
-        self.file_descriptors[fd] = None;
+        self.file_descriptors.deallocate(fd)
     }
 
     pub fn get_fd(&self, fd: usize) -> Option<Arc<Mutex<FileDescriptor>>> {
-        self.file_descriptors.get(fd).unwrap_or(&None).clone()
+        self.file_descriptors.get(fd).cloned()
     }
 
     /// Only possible error is an invalid fd
@@ -289,15 +251,6 @@ impl Process {
 
     pub fn clone_proc(&self, clone_args: &CloneArgs) -> Arc<Mutex<Process>> {
         let mut processes = PROCESSES.lock();
-        let pid = match processes.iter().position(Option::is_none) {
-            Some(x) => x,
-            None => {
-                let old_len = processes.len();
-                let new_len = if old_len == 0 { 8 } else { old_len * 2 };
-                processes.resize_with(new_len, || None);
-                old_len
-            }
-        } + 1;
 
         let tid = self.main_thread.upgrade().unwrap().lock().id;
 
@@ -312,28 +265,35 @@ impl Process {
         };
 
         let proc = Process {
-            pid,
+            pid: 0,
             ppid: self.pid,
-            pgid: self.pid,
+            pgid: self.pgid,
             uid: self.uid,
             euid: self.euid,
             gid: self.gid,
             egid: self.egid,
-            // TODO: cwd?
             cwd: self.cwd.clone(),
             // TODO: mapped regions?
             mapped_regions: self.mapped_regions.clone(),
-            main_thread: SCHEDULER.copy_user_thread(pid, tid),
-
+            main_thread: Weak::new(),
             pml4,
-            // TODO: copy_files
             file_descriptors: self.file_descriptors.clone(),
-            file_descriptors_allocated: self.file_descriptors_allocated,
         };
 
         let proc_arc = Arc::new(Mutex::new(proc));
+        let pid = processes.allocate(None, proc_arc.clone()).unwrap() + 1;
 
-        processes[pid - 1] = Some(proc_arc.clone());
+        // unfortunately we can't allocate a pid without setting the value and
+        // adding that functionality to SlotAllocator would introduce unnecessary
+        // complexity and while this solution isn't the cleanest it's the easiest
+        // for now
+        {
+            let proc = Arc::clone(&proc_arc);
+            let mut proc = proc.lock();
+
+            proc.pid = pid;
+            proc.main_thread = SCHEDULER.copy_user_thread(pid, tid);
+        }
 
         proc_arc
     }
@@ -487,7 +447,7 @@ unsafe fn write_strings_on_stack(stack: *mut u64, strs: &[&str]) -> *mut u64 {
     const POINTER_SIZE: usize = core::mem::size_of::<usize>();
 
     let mut string_stack = stack as *mut u8;
-    assert!(string_stack as usize % core::mem::size_of::<usize>() == 0);
+    assert!(string_stack as usize % POINTER_SIZE == 0);
     for s in strs.iter().rev() {
         let aligned_size = s.len() + POINTER_SIZE - (s.len() % POINTER_SIZE);
         string_stack = string_stack.offset(-(aligned_size as isize));
@@ -575,8 +535,5 @@ pub fn load_base_process(exec_path: &str) {
 pub fn get_process(pid: usize) -> Option<Arc<Mutex<Process>>> {
     let processes = PROCESSES.lock();
     let proc = processes.get(pid - 1);
-    match proc {
-        Some(p) => p.as_ref().map(Arc::clone),
-        None => None,
-    }
+    proc.map(Arc::clone)
 }
