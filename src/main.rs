@@ -10,6 +10,7 @@
 #![feature(const_ptr_as_ref)]
 #![feature(const_option)]
 #![feature(format_args_nl)]
+#![feature(int_roundings)]
 
 #[macro_use]
 extern crate alloc;

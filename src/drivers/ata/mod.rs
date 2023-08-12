@@ -5,7 +5,7 @@ use spin::Mutex;
 
 use crate::{
     arch::x86_64::{inb, inw, outb, outw},
-    blk,
+    blk::{self, LinearBlockAddress},
     pci::{self, PCIDevice},
 };
 
@@ -221,7 +221,9 @@ impl ATABus {
         );
     }
 
-    fn write_lba48(&self, master_disk: bool, lba: usize, count: usize) {
+    fn write_lba48(&self, master_disk: bool, lba: LinearBlockAddress, count: usize) {
+        let lba = lba.inner();
+
         let disk_val = if master_disk { 0x40 } else { 0x50 };
         self.write_io8(REG_DRIVE, disk_val);
 
@@ -250,7 +252,9 @@ impl ATABus {
         self.write_io8(REG_LBA2, lba3);
     }
 
-    fn write_lba28(&self, master_disk: bool, lba: usize, count: usize) {
+    fn write_lba28(&self, master_disk: bool, lba: LinearBlockAddress, count: usize) {
+        let lba = lba.inner();
+
         let highest_4bits: u8 = ((lba >> 24) & 0b00001111) as u8;
         let disk_val = if master_disk { 0xE0 } else { 0xF0 } | highest_4bits;
 
@@ -262,7 +266,7 @@ impl ATABus {
         self.write_io8(REG_LBA2, (lba >> 16) as u8);
     }
 
-    fn write_lba(&self, master_disk: bool, is_lba48: bool, lba: usize, count: usize) {
+    fn write_lba(&self, master_disk: bool, is_lba48: bool, lba: LinearBlockAddress, count: usize) {
         if is_lba48 {
             self.write_lba48(master_disk, lba, count);
         } else {
@@ -288,14 +292,14 @@ impl ATABus {
         }
     }
 
-    fn read(&mut self, master_disk: bool, lba: usize, count: usize, buff: &mut [u8]) {
+    fn read(&mut self, master_disk: bool, lba: LinearBlockAddress, count: usize, buff: &mut [u8]) {
         assert!(count < 256);
         self.select_disk(master_disk);
         self.wait_until_not_busy();
 
         let sector_count = if count == u16::MAX as usize { 0 } else { count };
 
-        let is_lba48 = lba > 0x0FFFFFFF;
+        let is_lba48 = lba > LinearBlockAddress::new(0x0FFFFFFF);
         self.write_lba(master_disk, is_lba48, lba, sector_count);
 
         self.write_io8(
@@ -379,7 +383,7 @@ impl ATAController {
         &mut self,
         primary_bus: bool,
         master_disk: bool,
-        lba: usize,
+        lba: LinearBlockAddress,
         count: usize,
         buff: &mut [u8],
     ) {

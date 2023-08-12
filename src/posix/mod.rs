@@ -147,6 +147,16 @@ pub const TCSAFLUSH: usize = 2;
 
 pub const NCCS: usize = 32;
 
+pub const S_IFMT: u32 = 0o170000;
+
+pub const S_IFDIR: u32 = 0o040000;
+pub const S_IFCHR: u32 = 0o020000;
+pub const S_IFBLK: u32 = 0o060000;
+pub const S_IFREG: u32 = 0o100000;
+pub const S_IFIFO: u32 = 0o010000;
+pub const S_IFLNK: u32 = 0o120000;
+pub const S_IFSOCK: u32 = 0o140000;
+
 #[repr(C, packed)]
 #[derive(Clone, Copy, Debug)]
 pub struct Termios {
@@ -179,4 +189,33 @@ pub struct Stat {
     pub st_ctim: Timespec,
     pub st_blksize: u64,
     pub st_blocks: u64,
+}
+
+impl Stat {
+    pub fn zero() -> Stat {
+        Self {
+            st_dev: 0,
+            st_ino: 0,
+            st_mode: 0,
+            st_nlink: 0,
+            st_uid: 0,
+            st_gid: 0,
+            st_rdev: 0,
+            st_size: 0,
+            st_atim: Timespec {
+                tv_sec: 0,
+                tv_nsec: 0,
+            },
+            st_mtim: Timespec {
+                tv_sec: 0,
+                tv_nsec: 0,
+            },
+            st_ctim: Timespec {
+                tv_sec: 0,
+                tv_nsec: 0,
+            },
+            st_blksize: 0,
+            st_blocks: 0,
+        }
+    }
 }

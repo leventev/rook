@@ -1,8 +1,6 @@
 use alloc::collections::BTreeMap;
 use encode_unicode::Utf8Char;
 
-use crate::utils;
-
 use super::Framebuffer;
 
 // https://wiki.osdev.org/PC_Screen_Font
@@ -47,7 +45,7 @@ impl Framebuffer {
         self.font_glyph_count = font_header.glyph_count as usize;
         self.font_glyph_size = font_header.glyph_size as usize;
         self.font_glyph_table_start_offset = font_header.header_size as usize;
-        self.font_pixel_row_size = utils::div_and_ceil(self.font_width, 8);
+        self.font_pixel_row_size = self.font_width.div_ceil(8);
 
         self.text_columns = self.width / self.font_width;
         self.text_rows = self.height / self.font_height;

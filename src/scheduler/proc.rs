@@ -10,9 +10,9 @@ use crate::{
         virt::{switch_pml4, PAGE_SIZE_4KIB, PML4},
         PhysAddr, VirtAddr,
     },
-    posix::AT_FCWD,
+    posix::{Stat, AT_FCWD},
     scheduler::{ThreadInner, SCHEDULER},
-    utils::{self, slot_allocator::SlotAllocator},
+    utils::{slot_allocator::SlotAllocator},
 };
 use alloc::{
     boxed::Box,
@@ -322,13 +322,17 @@ impl Process {
         self.mapped_regions.clear();
 
         let mut fd = fs::open(exec_path).unwrap();
-        let info = fd.file_info().unwrap();
+
+        let mut stat_buf = Stat::zero();
+        fd.stat(&mut stat_buf).unwrap();
+
+        let file_size = stat_buf.st_size as usize;
 
         // TODO: perhaps we can parse the ELF header without reading the whole file
         // and instead later reading the file to userspace
         // TODO: don't unnecessarily zero the memory
-        let mut buff: Box<[u8]> = vec![0; info.size].into_boxed_slice();
-        match fd.read(info.size, &mut buff[..]) {
+        let mut buff: Box<[u8]> = vec![0; file_size].into_boxed_slice();
+        match fd.read(file_size, &mut buff[..]) {
             Ok(_) => {}
             Err(err) => panic!("{:?}", err),
         };
@@ -360,7 +364,7 @@ impl Process {
             }
 
             let seg_page_start = VirtAddr::new(ph.p_vaddr - ph.p_vaddr % PAGE_SIZE_4KIB);
-            let pages = utils::div_and_ceil(ph.p_memsz as usize, PAGE_SIZE_4KIB as usize);
+            let pages = ph.p_memsz.div_ceil(PAGE_SIZE_4KIB) as usize;
             self.add_region(seg_page_start.get() as usize, pages, flags)
                 .unwrap();
 

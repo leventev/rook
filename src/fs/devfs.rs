@@ -4,9 +4,7 @@ use spin::{Lazy, Mutex};
 
 use crate::posix::Stat;
 
-use super::{
-    inode::FSInode, mount_special, FileInfo, FileSystem, FileSystemError, FileSystemInner,
-};
+use super::{inode::FSInode, mount_special, FileSystem, FileSystemError, FileSystemInner};
 
 pub trait DevFsDevice {
     fn read(
@@ -57,7 +55,7 @@ impl DeviceFileSystemInner {
 }
 
 impl FileSystemInner for DeviceFileSystem {
-    fn open(&self, path: &[String]) -> Result<FSInode, FileSystemError> {
+    fn open(&mut self, path: &[String]) -> Result<FSInode, FileSystemError> {
         let mut inner = DEVFS_INNER.lock();
 
         let node = match inner.get_node(path) {
@@ -76,20 +74,16 @@ impl FileSystemInner for DeviceFileSystem {
         }
     }
 
-    fn stat(&self, _path: &[String], _stat_buf: &mut Stat) -> Result<(), FileSystemError> {
+    fn close(&mut self, _inode: FSInode) -> Result<(), FileSystemError> {
         todo!()
     }
 
-    fn close(&self, _inode: FSInode) -> Result<(), FileSystemError> {
-        todo!()
-    }
-
-    fn fstat(&self, _inode: FSInode) -> Result<FileInfo, FileSystemError> {
+    fn stat(&mut self, _inode: FSInode, _stat_buf: &mut Stat) -> Result<(), FileSystemError> {
         todo!()
     }
 
     fn read(
-        &self,
+        &mut self,
         inode: FSInode,
         offset: usize,
         buff: &mut [u8],
@@ -105,7 +99,7 @@ impl FileSystemInner for DeviceFileSystem {
     }
 
     fn write(
-        &self,
+        &mut self,
         inode: FSInode,
         offset: usize,
         buff: &[u8],
@@ -120,7 +114,7 @@ impl FileSystemInner for DeviceFileSystem {
         ops.write(minor, offset, buff, size)
     }
 
-    fn ioctl(&self, inode: FSInode, req: usize, arg: usize) -> Result<usize, FileSystemError> {
+    fn ioctl(&mut self, inode: FSInode, req: usize, arg: usize) -> Result<usize, FileSystemError> {
         // TODO: check if inode is valid
         let mut inner = DEVFS_INNER.lock();
 

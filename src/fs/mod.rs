@@ -1,14 +1,11 @@
-use core::{
-    cell::{Cell, RefCell},
-    fmt::Debug,
-};
+use core::{cell::Cell, fmt::Debug};
 
 use alloc::{
     boxed::Box,
     collections::BTreeMap,
     format,
-    rc::{Rc, Weak},
     string::String,
+    sync::{self, Arc, Weak},
     vec::Vec,
 };
 use spin::RwLock;
@@ -40,36 +37,33 @@ pub enum SeekWhence {
 }
 
 pub trait FileSystemInner: Debug {
-    // Opens a file, returns the inode
-    fn open(&self, path: &[String]) -> Result<FSInode, FileSystemError>;
+    /// Opens a file, returns the inode
+    fn open(&mut self, path: &[String]) -> Result<FSInode, FileSystemError>;
 
-    // Opens a file, returns the inode
-    fn close(&self, inode: FSInode) -> Result<(), FileSystemError>;
+    /// Opens a file, returns the inode
+    fn close(&mut self, inode: FSInode) -> Result<(), FileSystemError>;
 
-    // Reads __size__ bytes into __buff__ from the __offset__, returns the number of bytes read
+    /// Reads `size` bytes into `buff` from the `offset`, returns the number of bytes read
     fn read(
-        &self,
+        &mut self,
         inode: FSInode,
         offset: usize,
         buff: &mut [u8],
         size: usize,
     ) -> Result<usize, FileSystemError>;
 
-    // Write __size__ bytes from __buff__ to the __offset__, returns the number of bytes written
+    /// Writes `size` bytes from `buff` to the `offset`, returns the number of bytes written
     fn write(
-        &self,
+        &mut self,
         inode: FSInode,
         offset: usize,
         buff: &[u8],
         size: usize,
     ) -> Result<usize, FileSystemError>;
 
-    fn stat(&self, path: &[String], stat_buf: &mut Stat) -> Result<(), FileSystemError>;
+    fn stat(&mut self, inode: FSInode, stat_buf: &mut Stat) -> Result<(), FileSystemError>;
 
-    // TODO: remove
-    fn fstat(&self, inode: FSInode) -> Result<FileInfo, FileSystemError>;
-
-    fn ioctl(&self, inode: FSInode, req: usize, arg: usize) -> Result<usize, FileSystemError>;
+    fn ioctl(&mut self, inode: FSInode, req: usize, arg: usize) -> Result<usize, FileSystemError>;
 }
 
 #[derive(Debug)]
@@ -88,10 +82,18 @@ pub struct FileSystem {
 struct MountPoint {
     path: Vec<String>,
     fs: FileSystem,
-    nodes: RefCell<BTreeMap<Vec<String>, Rc<VFSNode>>>,
+    nodes: BTreeMap<Vec<String>, Arc<VFSNode>>,
 }
 
 impl MountPoint {
+    fn new(path: Vec<String>, fs: FileSystem) -> MountPoint {
+        MountPoint {
+            path,
+            fs,
+            nodes: BTreeMap::new(),
+        }
+    }
+
     /// Extract the local mount path of a path
     fn get_subpath<'a>(&self, path: &'a Vec<String>) -> &'a [String] {
         &path[self.path.len()..]
@@ -106,13 +108,15 @@ impl PartialEq for MountPoint {
 
 struct VirtualFileSystem {
     fs_skeletons: Vec<FileSystemSkeleton>,
-    mounts: Vec<Rc<MountPoint>>,
+    // TODO: maybe it should be a Mutex?
+    mounts: Vec<Arc<RwLock<MountPoint>>>,
 }
 
 #[derive(Debug)]
 pub struct VFSNode {
     path: String,
-    mount: Weak<MountPoint>,
+    mount: sync::Weak<RwLock<MountPoint>>,
+    // FIXME: remove Cell
     size: Cell<usize>,
     inode: FSInode,
 }
@@ -125,25 +129,20 @@ impl VFSNode {
 
 #[derive(Debug, Clone)]
 pub struct FileDescriptor {
-    pub vnode: Rc<VFSNode>,
+    pub vnode: Arc<VFSNode>,
     pub offset: usize,
 }
 
 impl Drop for FileDescriptor {
     fn drop(&mut self) {
-        let strong_count = Rc::strong_count(&self.vnode);
+        let strong_count = Arc::strong_count(&self.vnode);
         // not sure if this is the best way to do this but its fine for now
         // 2 = hashmap and self
         if strong_count == 2 {
+            warn!("file descriptor dropped");
             // TODO: remove
         }
     }
-}
-
-#[derive(Clone, Copy)]
-pub struct FileInfo {
-    pub size: usize,
-    pub blocks_used: usize,
 }
 
 impl FileDescriptor {
@@ -156,7 +155,8 @@ impl FileDescriptor {
             return Ok(0);
         }
 
-        let mount = self.vnode.mount.upgrade().unwrap();
+        let mount_lock = self.vnode.mount.upgrade().unwrap();
+        let mut mount = mount_lock.write();
 
         let read = mount
             .fs
@@ -176,7 +176,8 @@ impl FileDescriptor {
             return Ok(0);
         }
 
-        let mount = self.vnode.mount.upgrade().unwrap();
+        let mount_lock = self.vnode.mount.upgrade().unwrap();
+        let mut mount = mount_lock.write();
 
         let read = mount
             .fs
@@ -187,22 +188,29 @@ impl FileDescriptor {
         Ok(read)
     }
 
-    pub fn file_info(&self) -> Result<FileInfo, FileSystemError> {
-        let mount = self.vnode.mount.upgrade().unwrap();
-        mount.fs.inner.fstat(self.vnode.inode)
+    pub fn stat(&self, stat_buf: &mut Stat) -> Result<(), FileSystemError> {
+        let mount_lock = self.vnode.mount.upgrade().unwrap();
+        let mut mount = mount_lock.write();
+        mount.fs.inner.stat(self.vnode.inode, stat_buf)
     }
 
     pub fn ioctl(&self, req: usize, arg: usize) -> Result<usize, FileSystemError> {
-        let mount = self.vnode.mount.upgrade().unwrap();
+        let mount_lock = self.vnode.mount.upgrade().unwrap();
+        let mut mount = mount_lock.write();
         mount.fs.inner.ioctl(self.vnode.inode, req, arg)
     }
 
     pub fn lseek(&mut self, offset: usize, whence: SeekWhence) -> Result<usize, FileSystemError> {
         // TODO: normal SeekWhence::End
+
         let new_off = match whence {
             SeekWhence::Set => offset,
             SeekWhence::Cur => self.offset + offset,
-            SeekWhence::End => self.file_info().unwrap().size + offset,
+            SeekWhence::End => {
+                let mut buff = Stat::zero();
+                self.stat(&mut buff)?;
+                buff.st_size as usize + offset
+            }
         };
 
         self.offset = new_off;
@@ -278,11 +286,11 @@ impl VirtualFileSystem {
             return Err(FileSystemError::AlreadyMounted);
         }
 
-        self.mounts.push(Rc::new(MountPoint {
+        self.mounts.push(Arc::new(RwLock::new(MountPoint {
             path: parsed_path,
             fs: filesystem,
-            nodes: RefCell::new(BTreeMap::new()),
-        }));
+            nodes: BTreeMap::new(),
+        })));
 
         Ok(())
     }
@@ -319,25 +327,23 @@ impl VirtualFileSystem {
             return Err(FileSystemError::AlreadyMounted);
         }
 
-        let filesystem = self.create_new_filesystem(fs_name, part)?;
+        let fs = self.create_new_filesystem(fs_name, part)?;
 
-        self.mounts.push(Rc::new(MountPoint {
-            path: parsed_path,
-            fs: filesystem,
-            nodes: RefCell::new(BTreeMap::new()),
-        }));
+        self.mounts
+            .push(Arc::new(RwLock::new(MountPoint::new(parsed_path, fs))));
 
         Ok(())
     }
 
-    fn find_path_mount(&mut self, path: &Vec<String>) -> Option<Rc<MountPoint>> {
+    fn find_path_mount(&mut self, path: &Vec<String>) -> Option<Arc<RwLock<MountPoint>>> {
         let mounts = &mut self.mounts;
         for i in (0..path.len() + 1).rev() {
             let subpath = &path[0..i];
 
-            let pos = mounts
-                .iter_mut()
-                .position(|mount| &mount.path[..] == subpath);
+            let pos = mounts.iter_mut().position(|mount_lock| {
+                let mount = mount_lock.read();
+                &mount.path[..] == subpath
+            });
 
             match pos {
                 Some(idx) => return Some(self.mounts[idx].clone()),
@@ -348,11 +354,12 @@ impl VirtualFileSystem {
         None
     }
 
-    fn find_mount(&mut self, mount_path: &Vec<String>) -> Option<Rc<MountPoint>> {
+    fn find_mount(&mut self, mount_path: &Vec<String>) -> Option<Arc<RwLock<MountPoint>>> {
         let mounts = &mut self.mounts;
-        let pos = mounts
-            .iter_mut()
-            .position(|mount| &mount.path[..] == mount_path);
+        let pos = mounts.iter_mut().position(|mount_lock| {
+            let mount = mount_lock.read();
+            &mount.path[..] == mount_path
+        });
 
         match pos {
             Some(idx) => Some(self.mounts[idx].clone()),
@@ -366,32 +373,30 @@ impl VirtualFileSystem {
             None => return Err(FileSystemError::InvalidPath),
         };
 
-        let mount = self
+        let mount_lock = self
             .find_path_mount(&parsed_path)
             .expect("Root filesystem is not mounted");
+
+        let mut mount = mount_lock.write();
         let subpath = mount.get_subpath(&parsed_path);
 
-        if !mount.nodes.borrow().contains_key(subpath) {
+        if !mount.nodes.contains_key(subpath) {
             let inode = mount.fs.inner.open(subpath)?;
 
             let n = VFSNode {
                 path: String::from(path),
-                mount: Rc::downgrade(&mount),
+                mount: Arc::downgrade(&mount_lock),
                 inode,
                 size: Cell::new(1234),
             };
 
-            mount
-                .nodes
-                .borrow_mut()
-                .insert(subpath.to_vec(), Rc::new(n));
+            mount.nodes.insert(subpath.to_vec(), Arc::new(n));
         }
 
-        let binding = mount.nodes.borrow();
-        let node = binding.get(subpath).unwrap();
+        let node = mount.nodes.get(subpath).unwrap();
 
         Ok(Box::new(FileDescriptor {
-            vnode: Rc::clone(node),
+            vnode: Arc::clone(node),
             offset: 0,
         }))
     }
@@ -402,14 +407,20 @@ impl VirtualFileSystem {
             None => return Err(FileSystemError::InvalidPath),
         };
 
-        let mount = self
+        let mount_lock = self
             .find_path_mount(&parsed_path)
             .expect("Root filesystem is not mounted");
+        let mut mount = mount_lock.write();
+
         let subpath = mount.get_subpath(&parsed_path);
 
         // TODO: dcache
-
-        mount.fs.inner.stat(subpath, stat_buf)
+        // TODO: dcache
+        // TODO: dcache
+        // TODO: dcache
+        let inode = mount.fs.inner.open(subpath)?;
+        mount.fs.inner.stat(inode, stat_buf)?;
+        mount.fs.inner.close(inode)
     }
 }
 
