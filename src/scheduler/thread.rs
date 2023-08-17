@@ -27,18 +27,26 @@ pub struct KernelThreadData {
     pub regs: Box<RegisterState>,
 }
 
+// FIXME: do not derive Clone because it won't allocate a new TLS
 #[derive(Debug, Clone)]
 pub struct UserThreadData {
     pub pid: usize,
     pub kernel_regs: Box<RegisterState>,
     pub user_regs: Box<RegisterState>,
     pub in_kernelspace: bool,
+    pub tls: Option<ThreadLocalStorage>,
 }
 
 #[derive(Debug, Clone)]
 pub enum ThreadInner {
     Kernel(KernelThreadData),
     User(UserThreadData),
+}
+
+#[derive(Debug, Clone)]
+pub struct ThreadLocalStorage {
+    pub base_addr: VirtAddr,
+    pub tls_size: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -62,6 +70,19 @@ const KERNEL_FULL_STACK_SIZE_PER_THREAD: u64 = 8 * 4096; // 32KiB
 const KERNEL_STACK_SIZE_PER_THREAD: u64 = KERNEL_FULL_STACK_SIZE_PER_THREAD - 4096; // 28 KiB
 
 const MAX_THREADS: usize = 64;
+
+impl ThreadLocalStorage {
+    pub const fn new(base_addr: VirtAddr, size: usize) -> ThreadLocalStorage {
+        ThreadLocalStorage {
+            base_addr,
+            tls_size: size,
+        }
+    }
+
+    pub const fn thead_struct_addr(&self) -> VirtAddr {
+        VirtAddr::new(self.base_addr.get() + self.tls_size as u64)
+    }
+}
 
 impl SchedulerThreadData {
     fn get_kernel_stack(tid: ThreadID) -> u64 {
@@ -159,6 +180,7 @@ impl SchedulerThreadData {
                 kernel_regs: Box::new(RegisterState::new_kernel()),
                 user_regs: Box::new(RegisterState::new_user()),
                 in_kernelspace: false,
+                tls: None,
             }),
         }
     }

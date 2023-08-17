@@ -93,7 +93,7 @@ impl<T> SlotAllocator<T> {
     }
 
     fn deallocate_slot(&mut self, index: usize) {
-        if self.is_allocated(index) {
+        if !self.is_allocated(index) {
             panic!("invalid slot index: {}", index);
         }
 

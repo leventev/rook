@@ -4,9 +4,9 @@ pub mod thread;
 
 use crate::{
     arch::x86_64::{
-        self, disable_interrupts,
+        self, disable_interrupts, get_fs_base,
         registers::{InterruptRegisters, RegisterState},
-        set_segment_selectors,
+        set_fs_base, set_segment_selectors,
     },
     mm::virt::PML4,
     scheduler::thread::ThreadState,
@@ -182,16 +182,23 @@ impl Scheduler {
                 x86_64::tss::TSS.rsp0 = next_thread.stack_bottom;
             }
 
-            let regs = match &next_thread.inner {
-                ThreadInner::Kernel(data) => &data.regs,
-                ThreadInner::User(data) => {
+            let (regs, tls) = match &next_thread.inner {
+                ThreadInner::Kernel(data) => (&data.regs, &None),
+                ThreadInner::User(data) => (
                     if data.in_kernelspace {
                         &data.kernel_regs
                     } else {
                         &data.user_regs
-                    }
-                }
+                    },
+                    &data.tls,
+                ),
             };
+
+            set_segment_selectors(regs.selectors.es);
+
+            if let Some(tls) = tls {
+                set_fs_base(tls.thead_struct_addr());
+            }
 
             **regs
         };
@@ -224,18 +231,23 @@ impl Scheduler {
         //println!("switch thread {}", next_thread.id.0);
 
         // TODO: dont copy registers
-        let regs = match &next_thread.inner {
-            ThreadInner::Kernel(data) => &data.regs,
-            ThreadInner::User(data) => {
+        let (regs, tls) = match &next_thread.inner {
+            ThreadInner::Kernel(data) => (&data.regs, &None),
+            ThreadInner::User(data) => (
                 if data.in_kernelspace {
                     &data.kernel_regs
                 } else {
                     &data.user_regs
-                }
-            }
+                },
+                &data.tls,
+            ),
         };
 
         set_segment_selectors(regs.selectors.es);
+
+        if let Some(tls) = tls {
+            set_fs_base(tls.thead_struct_addr());
+        }
 
         int_regs.general = regs.general;
         int_regs.iret.rip = regs.rip;

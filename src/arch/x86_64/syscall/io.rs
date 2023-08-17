@@ -333,3 +333,21 @@ fn chdir(proc: Arc<Mutex<Process>>, path: *const c_char) -> Result<usize, Syscal
 
     Ok(0)
 }
+
+pub fn sys_log(proc: Arc<Mutex<Process>>, args: [u64; 6]) -> u64 {
+    let message = args[0] as *const c_char;
+
+    log(proc, message).unwrap();
+
+    0
+}
+
+fn log(proc: Arc<Mutex<Process>>, message: *const c_char) -> Result<(), SyscallIOError> {
+    // TODO: check if message is valid
+    let message = unsafe { CStr::from_ptr(message) }.to_str().unwrap();
+
+    let p = proc.lock();
+    log!("process {}: {}", p.pid, message);
+
+    Ok(())
+}

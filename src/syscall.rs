@@ -6,6 +6,7 @@ use crate::{
         self, disable_interrupts, enable_interrupts,
         idt::{self, IDTTypeAttr},
         registers::InterruptRegisters,
+        set_fs_base, set_segment_selectors,
     },
     scheduler::{
         proc::{get_process, Process},
@@ -49,6 +50,7 @@ static SYSCALL_TABLE: &[Syscall] = &[
     Syscall::new("execve", x86_64::syscall::proc::sys_execve),
     Syscall::new("lseek", x86_64::syscall::io::sys_lseek),
     Syscall::new("chdir", x86_64::syscall::io::sys_chdir),
+    Syscall::new("log", x86_64::syscall::io::sys_log),
 ];
 
 #[no_mangle]
@@ -107,6 +109,11 @@ fn handle_syscall(interrupt_regs: &mut InterruptRegisters) {
             interrupt_regs.general = data.user_regs.general;
             interrupt_regs.iret.rip = data.user_regs.rip;
             interrupt_regs.iret.rsp = data.user_regs.rsp;
+
+            set_segment_selectors(data.user_regs.selectors.es);
+            if let Some(tls) = &data.tls {
+                set_fs_base(tls.thead_struct_addr());
+            }
 
             data.in_kernelspace = false;
         } else {

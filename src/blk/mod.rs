@@ -6,7 +6,8 @@ use core::{
 
 use alloc::{
     boxed::Box,
-    vec::Vec, sync::{Arc, Weak},
+    sync::{Arc, Weak},
+    vec::Vec,
 };
 use spin::Mutex;
 

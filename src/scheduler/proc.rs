@@ -12,7 +12,7 @@ use crate::{
     },
     posix::{Stat, AT_FCWD},
     scheduler::{ThreadInner, SCHEDULER},
-    utils::{slot_allocator::SlotAllocator},
+    utils::slot_allocator::SlotAllocator,
 };
 use alloc::{
     boxed::Box,
@@ -22,13 +22,14 @@ use alloc::{
     vec::Vec,
 };
 use elf::{
-    abi::{PF_X, PT_LOAD},
+    abi::{PF_X, PT_LOAD, PT_TLS},
     endian::LittleEndian,
+    segment::ProgramHeader,
     ElfBytes,
 };
 use spin::Mutex;
 
-use super::{Thread, ThreadID};
+use super::{thread::ThreadLocalStorage, Thread, ThreadID};
 
 bitflags::bitflags! {
     pub struct MappedRegionFlags: u64 {
@@ -306,6 +307,112 @@ impl Process {
         Ok(())
     }
 
+    fn load_tls_segment(
+        &mut self,
+        file: &[u8],
+        header: &ProgramHeader,
+    ) -> Result<ThreadLocalStorage, ()> {
+        // TODO: thread structure
+        const TLS_BASE: VirtAddr = VirtAddr::new(0xfffffd0000000000);
+        self.load_segment(file, header, TLS_BASE)?;
+
+        let tls = ThreadLocalStorage::new(TLS_BASE, header.p_memsz as usize);
+
+        let thread_struct_addr = tls.thead_struct_addr().get();
+        let ptr = thread_struct_addr as *mut u64;
+        unsafe {
+            *ptr = thread_struct_addr;
+        }
+
+        Ok(tls)
+    }
+
+    fn load_normal_segment(&mut self, file: &[u8], header: &ProgramHeader) -> Result<(), ()> {
+        self.load_segment(file, header, VirtAddr::new(header.p_vaddr))
+    }
+
+    fn load_segment(
+        &mut self,
+        file: &[u8],
+        header: &ProgramHeader,
+        virt_addr_start: VirtAddr,
+    ) -> Result<(), ()> {
+        let mut flags = MappedRegionFlags::empty();
+        /*if ph.p_flags & PF_W > 0 {
+            flags |= MappedRegionFlags::READ_WRITE;
+        }*/
+        // FIXME: remove READ_WRITE flag after we are done copying the memory from the file
+        flags |= MappedRegionFlags::READ_WRITE;
+
+        if header.p_flags & PF_X > 0 {
+            flags |= MappedRegionFlags::EXECUTE;
+        }
+
+        let mem_size = header.p_memsz as usize;
+
+        let seg_page_start = VirtAddr::new(virt_addr_start.get() - virt_addr_start.page_offset());
+        let pages = mem_size.div_ceil(PAGE_SIZE_4KIB as usize);
+        self.add_region(seg_page_start.get() as usize, pages, flags)
+            .unwrap();
+
+        let seg_size = header.p_filesz as usize;
+        if seg_size > 0 {
+            let seg_start = header.p_offset as usize;
+            let seg_end = seg_start + seg_size;
+
+            let proc_mem =
+                unsafe { slice::from_raw_parts_mut(virt_addr_start.get() as *mut u8, seg_size) };
+            let seg_mem = &file[seg_start..seg_end];
+
+            proc_mem.copy_from_slice(seg_mem);
+        }
+
+        let remaining = mem_size - seg_size;
+        if remaining > 0 {
+            let ptr = (virt_addr_start.get() + seg_size as u64) as *mut u8;
+            let seg_mem = unsafe { slice::from_raw_parts_mut(ptr, remaining) };
+            seg_mem.fill(0);
+        }
+
+        Ok(())
+    }
+
+    fn load_segments(
+        &mut self,
+        file: &[u8],
+        elf_file: &ElfBytes<'_, LittleEndian>,
+    ) -> Result<Option<ThreadLocalStorage>, ()> {
+        let segments = match elf_file.segments() {
+            Some(segs) => segs,
+            None => return Err(()),
+        };
+
+        // TODO TODO
+        // FIXME
+
+        let mut tls: Option<ThreadLocalStorage> = None;
+
+        // TODO: check if the segments are in userspace
+        for ph in segments {
+            match ph.p_type {
+                PT_LOAD => self.load_normal_segment(file, &ph).unwrap(),
+                PT_TLS => match tls {
+                    Some(_) => warn!(
+                        "ignoring PT_TLS segment because we have already loaded one, segment: {:?}",
+                        ph
+                    ),
+                    None => tls = self.load_tls_segment(file, &ph).ok(),
+                },
+                _ => {
+                    warn!("ignoring segment: {:?}", ph);
+                    continue;
+                }
+            };
+        }
+
+        Ok(tls)
+    }
+
     pub fn load_from_file(
         &mut self,
         exec_path: &str,
@@ -342,47 +449,8 @@ impl Process {
             Err(_) => return Err(()),
         };
 
-        let segments = match elf_file.segments() {
-            Some(segs) => segs,
-            None => return Err(()),
-        }
-        .iter()
-        .filter(|seg| seg.p_type == PT_LOAD);
-
         switch_pml4(&self.pml4);
-        // TODO: check if the segments are in userspace
-        for ph in segments {
-            let mut flags = MappedRegionFlags::empty();
-            /*if ph.p_flags & PF_W > 0 {
-                flags |= MappedRegionFlags::READ_WRITE;
-            }*/
-            // FIXME: remove READ_WRITE flag after we are done copying the memory from the file
-            flags |= MappedRegionFlags::READ_WRITE;
-
-            if ph.p_flags & PF_X > 0 {
-                flags |= MappedRegionFlags::EXECUTE;
-            }
-
-            let seg_page_start = VirtAddr::new(ph.p_vaddr - ph.p_vaddr % PAGE_SIZE_4KIB);
-            let pages = ph.p_memsz.div_ceil(PAGE_SIZE_4KIB) as usize;
-            self.add_region(seg_page_start.get() as usize, pages, flags)
-                .unwrap();
-
-            let file_seg_start = ph.p_offset as usize;
-            let file_seg_end = (ph.p_offset + ph.p_filesz) as usize;
-
-            let file_seg_mem =
-                unsafe { slice::from_raw_parts_mut(ph.p_vaddr as *mut u8, ph.p_filesz as usize) };
-            file_seg_mem.copy_from_slice(&buff[file_seg_start..file_seg_end]);
-
-            if ph.p_memsz != ph.p_filesz {
-                let mem_file_size_diff = (ph.p_memsz - ph.p_filesz) as usize;
-                let start = (ph.p_vaddr + ph.p_filesz) as *mut u8;
-
-                let seg_mem = unsafe { slice::from_raw_parts_mut(start, mem_file_size_diff) };
-                seg_mem.fill(0);
-            }
-        }
+        let tls = self.load_segments(&buff, &elf_file).unwrap();
 
         const STACK_BASE: u64 = 0xfffffd8000000000;
         const STACK_SIZE_IN_PAGES: u64 = 16; // 64 KiB
@@ -418,6 +486,8 @@ impl Process {
             // TODO: validate
             data.user_regs.rip = elf_file.ehdr.e_entry;
             data.user_regs.rsp = stack_top;
+
+            data.tls = tls;
 
             data.pid = self.pid;
         } else {

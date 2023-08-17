@@ -1,6 +1,9 @@
 [submodule "toolchain/libc"]
 	path = toolchain/libc
 	url = git@github.com:leventev/libc.git
+[submodule "limine"]
+	path = limine
+	url = git@github.com:limine-bootloader/limine.git
 [submodule "libc"]
 	path = libc
 	url = git@github.com:leventev/libc.git

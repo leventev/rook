@@ -1,5 +1,5 @@
 use alloc::vec::Vec;
-use limine::{LimineMemmapResponse, LimineMemoryMapEntryType};
+use limine::{MemmapResponse, MemoryMapEntryType};
 
 use spin::Mutex;
 
@@ -113,7 +113,7 @@ pub struct PhysAllocator {
 }
 
 impl PhysAllocator {
-    pub fn init(&mut self, memmap: &LimineMemmapResponse) {
+    pub fn init(&mut self, memmap: &MemmapResponse) {
         let mut bitmap_base: usize = 0;
         let mmap = memmap.entries.as_ptr();
         for i in 0..memmap.entry_count {
@@ -124,7 +124,7 @@ impl PhysAllocator {
                     .expect("invalid memory map response")
             };
 
-            if entry.typ != LimineMemoryMapEntryType::Usable {
+            if entry.typ != MemoryMapEntryType::Usable {
                 continue;
             }
 
@@ -358,7 +358,7 @@ impl PhysAllocator {
 
 pub static PHYS_ALLOCATOR: Mutex<PhysAllocator> = Mutex::new(PhysAllocator::new_uninit());
 
-pub fn init(memmap: &LimineMemmapResponse) {
+pub fn init(memmap: &MemmapResponse) {
     let mut allocator = PHYS_ALLOCATOR.lock();
     allocator.init(memmap);
 }

@@ -1,5 +1,6 @@
 [build]
 rustflags = ["-C", "force-frame-pointers=yes"]
+target="x86_64-rook.json"
 
 [unstable]
 build-std-features = ["compiler-builtins-mem"]

@@ -1,5 +1,5 @@
 use crate::{
-    arch::x86_64::{get_cr2, get_current_pml4, paging::PageFlags},
+    arch::x86_64::{self, get_cr2, get_current_pml4, paging::PageFlags},
     mm::{phys, virt::PAGE_SIZE_4KIB, VirtAddr},
 };
 
@@ -114,8 +114,8 @@ pub extern "C" fn excp_stack_segment_fault() -> ! {
 
 #[no_mangle]
 pub extern "C" fn excp_general_protection_fault(error_code: u64) -> ! {
-    log!("ERROR GPF: {:#x}", error_code);
-    log!("{}", unsafe { EXCEPTION_REG_STATE });
+    error!("ERROR GPF: {:#x}", error_code);
+    error!("{}", unsafe { EXCEPTION_REG_STATE });
     panic!("GENERAL PROTECTION FAULT");
 }
 
@@ -129,7 +129,11 @@ pub extern "C" fn excp_page_fault(error_code: u64) {
 
     let mut page_flags = match pml4.get_page_entry_from_virt(addr) {
         Some((_, page_flags)) => page_flags,
-        None => panic!("PAGE FAULT virt: {} flags: {:?}", addr, page_fault_flags),
+        None => {
+            error!("FS BASE: {}", x86_64::get_fs_base());
+            error!("{}", unsafe { EXCEPTION_REG_STATE });
+            panic!("PAGE FAULT virt: {} flags: {:?}", addr, page_fault_flags)
+        }
     };
 
     if page_flags.contains(PageFlags::ALLOC_ON_ACCESS) {

@@ -10,7 +10,7 @@ pub mod tss;
 
 use core::arch::asm;
 
-use crate::mm::{virt::PML4, PhysAddr};
+use crate::mm::{virt::PML4, PhysAddr, VirtAddr};
 
 bitflags::bitflags! {
     pub struct Rflags: u64 {
@@ -129,6 +129,9 @@ bitflags::bitflags! {
         const FLUSH_TO_ZERO = 1 << 15;
     }
 }
+
+const FS_BASE_ADDR: u32 = 0xC0000100;
+const GS_BASE_ADDR: u32 = 0xC0000101;
 
 extern "C" {
     #[link_name = "x86_64_block_task"]
@@ -315,6 +318,7 @@ pub fn flush_tlb_page(virt: u64) {
     }
 }
 
+#[inline]
 pub fn fldcw(flags: X87Flags) {
     let val = flags.bits;
     unsafe {
@@ -322,11 +326,43 @@ pub fn fldcw(flags: X87Flags) {
     }
 }
 
+#[inline]
 pub fn load_mxcsr(flags: MXCSRFlags) {
     let val = flags.bits;
     unsafe {
         asm!("ldmxcsr [{}]", in(reg) &val);
     }
+}
+
+#[inline]
+pub fn write_msr(addr: u32, val: u64) {
+    let upper: u32 = (val >> 32) as u32;
+    let lower: u32 = val as u32;
+
+    unsafe {
+        asm!("wrmsr", in("rcx") addr, in("edx") upper, in("eax") lower);
+    }
+}
+
+#[inline]
+pub fn read_msr(addr: u32) -> u64 {
+    let upper: u32;
+    let lower: u32;
+    unsafe {
+        asm!("rdmsr", in("rcx") addr, out("edx") upper, out("eax") lower);
+    }
+
+    (upper as u64) << 32 | lower as u64
+}
+
+#[inline]
+pub fn set_fs_base(fs: VirtAddr) {
+    write_msr(FS_BASE_ADDR, fs.get());
+}
+
+#[inline]
+pub fn get_fs_base() -> VirtAddr {
+    VirtAddr::new(read_msr(FS_BASE_ADDR))
 }
 
 pub fn init() {

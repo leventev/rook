@@ -22,12 +22,12 @@ mount -t vfat /dev/loop0 /mnt/rook_disk
 cp -RTf $SYSROOT /mnt/rook_disk
 mkdir -p /mnt/rook_disk/boot/limine
 
-cp limine/limine.sys /mnt/rook_disk/boot
+#cp limine/BOOTX64.EFI /mnt/rook_disk/boot
 cp conf/limine.cfg /mnt/rook_disk/boot/limine
+cp limine/limine-bios.sys /mnt/rook_disk/boot/limine
 cp target/x86_64-rook/debug/rook /mnt/rook_disk/boot
-cp limine/BOOTX64.EFI /mnt/rook_disk/boot
 
 umount $TESTIMGPATH
 losetup -d /dev/loop0
 
-./limine/limine-deploy $TESTIMGPATH
+./limine/limine bios-install $TESTIMGPATH

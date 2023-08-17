@@ -1,7 +1,6 @@
 #![no_std]
 #![no_main]
 #![feature(core_intrinsics)]
-#![feature(default_free_fn)]
 #![allow(dead_code)]
 #![feature(alloc_error_handler)]
 #![feature(generic_arg_infer)]
@@ -35,9 +34,7 @@ mod utils;
 
 use alloc::slice;
 use arch::x86_64::{self, gdt};
-use limine::{
-    LimineBootTimeRequest, LimineFramebufferRequest, LimineHhdmRequest, LimineMemmapRequest,
-};
+use limine::{BootTimeRequest, FramebufferRequest, HhdmRequest, MemmapRequest};
 use scheduler::SCHEDULER;
 
 use crate::{
@@ -47,10 +44,10 @@ use crate::{
     scheduler::proc,
 };
 
-static MMAP_INFO: LimineMemmapRequest = LimineMemmapRequest::new(0);
-static HHDM_INFO: LimineHhdmRequest = LimineHhdmRequest::new(0);
-static BOOT_TIME_INFO: LimineBootTimeRequest = LimineBootTimeRequest::new(0);
-static FRAMEBUFFER_INFO: LimineFramebufferRequest = LimineFramebufferRequest::new(0);
+static MMAP_INFO: MemmapRequest = MemmapRequest::new(0);
+static HHDM_INFO: HhdmRequest = HhdmRequest::new(0);
+static BOOT_TIME_INFO: BootTimeRequest = BootTimeRequest::new(0);
+static FRAMEBUFFER_INFO: FramebufferRequest = FramebufferRequest::new(0);
 
 #[no_mangle]
 fn vmm_setup() {
@@ -156,7 +153,7 @@ fn main_init_thread() {
 
     syscall::init();
 
-    proc::load_base_process("/bin/dash");
+    proc::load_base_process("/bin/bash");
 }
 
 #[panic_handler]

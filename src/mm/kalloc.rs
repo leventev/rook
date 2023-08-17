@@ -134,7 +134,7 @@ impl KernelAllocatorInner {
                 if right_side {
                     // the new header is after the current header
                     let header_addr = actual_region_start + size;
-                    let mut new_node = unsafe { (header_addr as *mut Node).as_mut().unwrap() };
+                    let new_node = unsafe { (header_addr as *mut Node).as_mut().unwrap() };
                     new_node.allocated = false;
                     new_node.size = remaining_size;
 
@@ -145,7 +145,7 @@ impl KernelAllocatorInner {
                     current.size = remaining_size;
 
                     let header_addr = actual_region_start - core::mem::size_of::<Node>();
-                    let mut new_node = unsafe { (header_addr as *mut Node).as_mut().unwrap() };
+                    let new_node = unsafe { (header_addr as *mut Node).as_mut().unwrap() };
                     new_node.allocated = true;
                     new_node.size = size;
                 }

@@ -8,31 +8,38 @@ use alloc::slice;
 
 use crate::mm::virt::PAGE_ENTRIES;
 
-use self::{phys::FRAME_SIZE, virt::HHDM_START};
+use self::{
+    phys::FRAME_SIZE,
+    virt::{HHDM_START, PAGE_SIZE_4KIB},
+};
 
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct VirtAddr(u64);
 
 impl VirtAddr {
-    pub fn pml4_index(&self) -> u64 {
+    pub const fn pml4_index(&self) -> u64 {
         (self.0 >> 39) & 0o777
     }
 
-    pub fn pml3_index(&self) -> u64 {
+    pub const fn pml3_index(&self) -> u64 {
         (self.0 >> 30) & 0o777
     }
 
-    pub fn pml2_index(&self) -> u64 {
+    pub const fn pml2_index(&self) -> u64 {
         (self.0 >> 21) & 0o777
     }
 
-    pub fn pml1_index(&self) -> u64 {
+    pub const fn pml1_index(&self) -> u64 {
         (self.0 >> 12) & 0o777
     }
 
-    pub fn get(&self) -> u64 {
+    pub const fn get(&self) -> u64 {
         self.0
+    }
+
+    pub const fn page_offset(&self) -> u64 {
+        self.0 % PAGE_SIZE_4KIB
     }
 
     pub const fn new(val: u64) -> VirtAddr {
