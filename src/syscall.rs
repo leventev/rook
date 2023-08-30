@@ -51,6 +51,8 @@ static SYSCALL_TABLE: &[Syscall] = &[
     Syscall::new("lseek", x86_64::syscall::io::sys_lseek),
     Syscall::new("chdir", x86_64::syscall::io::sys_chdir),
     Syscall::new("log", x86_64::syscall::io::sys_log),
+    Syscall::new("archctl", x86_64::syscall::proc::sys_archctl),
+    Syscall::new("gettimeofday", x86_64::syscall::proc::sys_gettimeofday),
 ];
 
 #[no_mangle]

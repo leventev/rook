@@ -24,6 +24,8 @@ pub trait DevFsDevice {
     ) -> Result<usize, FileSystemError>;
 
     fn ioctl(&self, minor: u16, req: usize, arg: usize) -> Result<usize, FileSystemError>;
+
+    fn stat(&self, minor: u16, stat_buf: &mut Stat) -> Result<(), FileSystemError>;
 }
 
 #[derive(Debug)]
@@ -75,11 +77,17 @@ impl FileSystemInner for DeviceFileSystem {
     }
 
     fn close(&mut self, _inode: FSInode) -> Result<(), FileSystemError> {
-        todo!()
+        warn!("devfs close unimplemented");
+        Ok(())
     }
 
-    fn stat(&mut self, _inode: FSInode, _stat_buf: &mut Stat) -> Result<(), FileSystemError> {
-        todo!()
+    fn stat(&mut self, inode: FSInode, stat_buf: &mut Stat) -> Result<(), FileSystemError> {
+        let mut inner = DEVFS_INNER.lock();
+
+        let (major, minor) = inode_to_dev_number(inode);
+        let ops = inner.major_operations.get_mut(&major).unwrap();
+
+        ops.stat(minor, stat_buf)
     }
 
     fn read(

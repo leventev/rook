@@ -161,35 +161,65 @@ impl Process {
         self.cwd = cwd;
     }
 
+    // TODO: better name
+    pub fn get_region(&self, region_start: usize, region_end: usize) -> Option<usize> {
+        // TODO: check if addresses are aligned?
+        self.mapped_regions
+            .iter()
+            .position(|region| region.start < region_end && region_start < region.end)
+    }
+
     // TODO: error
     pub fn add_region(
         &mut self,
-        start_addr: usize,
+        region_start: usize,
         pages: usize,
         flags: MappedRegionFlags,
     ) -> Result<(), ()> {
         debug!(
             "add region {:#x} {:#x} pages {:?}",
-            start_addr, pages, flags
+            region_start, pages, flags
         );
-        assert!(start_addr % 4096 == 0);
+        assert!(region_start % 4096 == 0);
 
-        let end = start_addr + pages * PAGE_SIZE_4KIB as usize;
-        let region = self
-            .mapped_regions
-            .iter()
-            .find(|region| region.start < end && start_addr < region.end);
+        let region_end = region_start + pages * PAGE_SIZE_4KIB as usize;
 
-        if region.is_some() {
+        if self.get_region(region_start, region_end).is_some() {
             return Err(());
         }
 
         // TODO: check for overlapping regions
-        let region = MappedRegion::new(start_addr, pages, flags);
+        let region = MappedRegion::new(region_start, pages, flags);
         self.map_region(&region);
         self.mapped_regions.push(region);
 
         Ok(())
+    }
+
+    // TODO: docs, debug_assert desired_addr is aligned, other checks...
+    pub fn mmap(
+        &mut self,
+        desired_addr: Option<usize>,
+        len: usize,
+        flags: MappedRegionFlags,
+    ) -> Result<usize, ()> {
+        // TODO: optimize
+        let pages = len.div_ceil(4096);
+        let region_start = desired_addr.unwrap_or_else(|| {
+            const REGION_SEARCH_START: usize = 0x1000;
+            let (mut start, mut end) = (REGION_SEARCH_START, REGION_SEARCH_START + len);
+
+            while let Some(idx) = self.get_region(start, end) {
+                let region = &self.mapped_regions[idx];
+                start = region.end + 0x1000;
+                end = start + len;
+            }
+
+            start
+        });
+
+        self.add_region(region_start, pages, flags)?;
+        Ok(region_start)
     }
 
     pub fn new_fd(
@@ -401,7 +431,7 @@ impl Process {
                         "ignoring PT_TLS segment because we have already loaded one, segment: {:?}",
                         ph
                     ),
-                    None => tls = self.load_tls_segment(file, &ph).ok(),
+                    None => (), //tls = self.load_tls_segment(file, &ph).ok(),
                 },
                 _ => {
                     warn!("ignoring segment: {:?}", ph);
@@ -463,11 +493,27 @@ impl Process {
         )
         .unwrap();
 
-        let stack_bottom = STACK_BASE + STACK_SIZE;
+        let argc_argv_envp_size = (1 + args.len() + 1 + envvars.len() + 1) * 8;
+        let rem = argc_argv_envp_size % 16;
+        let stack_bottom = STACK_BASE + STACK_SIZE - rem as u64;
+
         let (argv, envp) = unsafe { write_argv_envp(stack_bottom, args, envvars) };
 
-        assert!(argv % 8 == 0);
-        let stack_top = argv - argv % 16;
+        let stack_top = argv - 8;
+        {
+            let stack_ptr = stack_top as *mut u64;
+            unsafe {
+                stack_ptr.write(args.len() as u64);
+            }
+        }
+
+        debug!(
+            "stack_top: {:#x} argc: {:#x} argv: {:#x} envp: {:#x}",
+            stack_top,
+            args.len(),
+            argv,
+            envp
+        );
 
         // FIXME: random deadlock caused by timer interrupt
         // maybe disable interrupts here

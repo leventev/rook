@@ -27,11 +27,17 @@ bitflags::bitflags! {
     }
 }
 
-pub const F_DUPFD: usize = 0;
-pub const F_GETFD: usize = 1;
-pub const F_SETFD: usize = 2;
-pub const F_GETFL: usize = 3;
-pub const F_SETFL: usize = 4;
+pub const F_DUPFD: usize = 1;
+pub const F_DUPFD_CLOEXEC: usize = 2;
+pub const F_GETFD: usize = 3;
+pub const F_SETFD: usize = 4;
+pub const F_GETFL: usize = 5;
+pub const F_SETFL: usize = 6;
+pub const F_GETLK: usize = 7;
+pub const F_SETLK: usize = 8;
+pub const F_SETLKW: usize = 9;
+pub const F_GETOWN : usize = 0;
+pub const F_SETOWN : usize = 1;
 
 pub const TCGETS: usize = 0x5401;
 pub const TCSETS: usize = 0x5402;
@@ -172,6 +178,13 @@ pub struct Termios {
 pub struct Timespec {
     pub tv_sec: u64,
     pub tv_nsec: u64,
+}
+
+#[repr(C, packed)]
+#[derive(Clone, Copy, Debug)]
+pub struct Timeval {
+    pub tv_sec: u64,
+    pub tv_usec: u64,
 }
 
 #[repr(C, packed)]

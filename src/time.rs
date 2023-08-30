@@ -7,8 +7,8 @@ static mut BOOT_TIME: u64 = 0;
 
 #[derive(Clone, Copy)]
 pub struct Time {
-    seconds: u64,
-    milliseconds: u64, // between 0 and 1000
+    pub seconds: u64,
+    pub milliseconds: u64, // between 0 and 1000
 }
 
 impl fmt::Display for Time {

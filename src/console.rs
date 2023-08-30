@@ -8,7 +8,7 @@ use crate::{
     },
     framebuffer,
     fs::devfs::{self, DevFsDevice},
-    posix::{Termios, ECHO, ICANON, ISIG, NCCS, TCGETS, TCSETS, TIOCGPGRP, TIOCSPGRP},
+    posix::{Termios, ECHO, ICANON, ISIG, NCCS, TCGETS, TCSETS, TIOCGPGRP, TIOCSPGRP, S_IFCHR},
     sync::InterruptMutex,
 };
 
@@ -219,6 +219,20 @@ impl DevFsDevice for Console {
         }
 
         Ok(0)
+    }
+
+    fn stat(&self, _minor: u16, stat_buf: &mut crate::posix::Stat) -> Result<(), crate::fs::FileSystemError> {
+        // TODO
+        stat_buf.st_blksize = 4096;
+        stat_buf.st_blocks = 0;
+        stat_buf.st_size = 0;
+        stat_buf.st_dev = 0;
+        stat_buf.st_gid = 0;
+        stat_buf.st_uid = 0;
+        stat_buf.st_nlink = 1;
+        stat_buf.st_mode = S_IFCHR | 0o666;
+
+        Ok(())
     }
 }
 

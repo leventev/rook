@@ -4,7 +4,7 @@ pub mod thread;
 
 use crate::{
     arch::x86_64::{
-        self, disable_interrupts, get_fs_base,
+        self, disable_interrupts,
         registers::{InterruptRegisters, RegisterState},
         set_fs_base, set_segment_selectors,
     },

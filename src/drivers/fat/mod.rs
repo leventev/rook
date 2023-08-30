@@ -581,6 +581,11 @@ impl FileSystemInner for FATFileSystem {
 
         let mut buff_left = size;
         let mut size_left = file.file_size();
+
+        if offset >= size_left {
+            return Ok(0);
+        }
+
         let mut total_read = 0;
         let mut start_off = offset % BLOCK_SIZE;
 
@@ -597,7 +602,8 @@ impl FileSystemInner for FATFileSystem {
                 size_left
             })
             .min(BLOCK_SIZE)
-            .min(buff_left);
+            .min(buff_left)
+            .min(size_left);
 
             let sub_buff = &mut buff[total_read..total_read + read];
 

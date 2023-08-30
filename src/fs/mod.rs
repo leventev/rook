@@ -368,6 +368,8 @@ impl VirtualFileSystem {
     }
 
     fn open(&mut self, path: &str) -> Result<Box<FileDescriptor>, FileSystemError> {
+        debug!("vfs open {}", path);
+
         let parsed_path = match parse_path(path) {
             Some(s) => s,
             None => return Err(FileSystemError::InvalidPath),

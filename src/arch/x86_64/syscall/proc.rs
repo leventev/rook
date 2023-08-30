@@ -6,13 +6,14 @@ use spin::Mutex;
 
 use crate::{
     arch::x86_64::disable_interrupts,
-    posix::errno,
+    mm::VirtAddr,
+    posix::{errno, Timeval},
     scheduler::{
         self,
         proc::{get_process, Process},
-        thread::{ThreadID, ThreadInner},
+        thread::{ThreadID, ThreadInner, ThreadLocalStorage},
         SCHEDULER,
-    },
+    }, time,
 };
 
 bitflags! {
@@ -47,6 +48,7 @@ pub struct CloneArgs {
 enum SyscallProcError {
     InvalidPID,
     NotFoundPID,
+    InvalidRequest,
 }
 
 impl SyscallProcError {
@@ -54,6 +56,7 @@ impl SyscallProcError {
         let val = match self {
             Self::InvalidPID => errno::EINVAL,
             Self::NotFoundPID => errno::ESRCH,
+            Self::InvalidRequest => errno::EINVAL
         };
 
         (-val) as u64
@@ -290,6 +293,56 @@ fn execve(
         data.user_regs.general.r15 = 0;
         data.user_regs.general.rbp = 0;
     }
+
+    Ok(())
+}
+
+pub fn sys_archctl(proc: Arc<Mutex<Process>>, args: [u64; 6]) -> u64 {
+    let req = args[0] as usize;
+    let arg = args[1] as usize;
+
+    match archctl(proc, req, arg) {
+        Ok(_) => 0,
+        Err(err) => err.as_errno(),
+    }
+}
+
+fn archctl(proc: Arc<Mutex<Process>>, req: usize, arg: usize) -> Result<(), SyscallProcError> {
+    const SET_FS: usize = 0x1000;
+
+    let p = proc.lock();
+
+    let main_thread_lock = p.main_thread.upgrade().unwrap();
+    let mut main_thread = main_thread_lock.lock();
+
+    // TODO
+    match req {
+        SET_FS => {
+            // TODO: check if fs is valid
+            if let ThreadInner::User(data) = &mut main_thread.inner {
+                data.tls = Some(ThreadLocalStorage::new(VirtAddr::new(arg as u64), 0));
+            }
+            Ok(())
+        }
+        _ => Err(SyscallProcError::InvalidRequest),
+    }
+}
+
+pub fn sys_gettimeofday(proc: Arc<Mutex<Process>>, args: [u64; 6]) -> u64 {
+    // TODO: validate ptr
+    let tv = unsafe { (args[0] as *mut Timeval).as_mut().unwrap() };
+
+    match gettimeofday(proc, tv) {
+        Ok(_) => 0,
+        Err(err) => err.as_errno(),
+    }
+}
+
+fn gettimeofday(_proc: Arc<Mutex<Process>>, tv: &mut Timeval) -> Result<(), SyscallProcError> {
+    let time = time::elapsed();
+
+    tv.tv_sec = time.seconds;
+    tv.tv_usec = time.milliseconds;
 
     Ok(())
 }

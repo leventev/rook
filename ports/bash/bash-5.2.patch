@@ -1,0 +1,48 @@
+diff -ruN bash-5.2/lib/readline/terminal.c bash-5.2-diff/lib/readline/terminal.c
+--- bash-5.2/lib/readline/terminal.c	2022-04-05 14:44:17.000000000 +0000
++++ bash-5.2-diff/lib/readline/terminal.c	2023-08-15 11:28:12.212111533 +0000
+@@ -102,7 +102,7 @@
+ 
+ static int tcap_initialized;
+ 
+-#if !defined (__linux__) && !defined (NCURSES_VERSION)
++#if 0
+ #  if defined (__EMX__) || defined (NEED_EXTERN_PC)
+ extern 
+ #  endif /* __EMX__ || NEED_EXTERN_PC */
+diff -ruN bash-5.2/lib/sh/getenv.c bash-5.2-diff/lib/sh/getenv.c
+--- bash-5.2/lib/sh/getenv.c	2018-07-09 14:14:46.000000000 +0000
++++ bash-5.2-diff/lib/sh/getenv.c	2023-08-15 11:29:06.157047226 +0000
+@@ -21,7 +21,7 @@
+ 
+ #include <config.h>
+ 
+-#if defined (CAN_REDEFINE_GETENV)
++#if 0
+ 
+ #if defined (HAVE_UNISTD_H)
+ #  include <unistd.h>
+diff -ruN bash-5.2/m4/strtoimax.m4 bash-5.2-diff/m4/strtoimax.m4
+--- bash-5.2/m4/strtoimax.m4	2022-04-11 20:31:52.000000000 +0000
++++ bash-5.2-diff/m4/strtoimax.m4	2023-08-15 11:28:42.086332238 +0000
+@@ -29,7 +29,7 @@
+   fi
+ ])
+ AC_MSG_RESULT($bash_cv_func_strtoimax)
+-if test $bash_cv_func_strtoimax = yes; then
++if test $bash_cv_func_strtoimax = no; then
+ AC_LIBOBJ(strtoimax)
+ fi
+ ])
+diff -ruN bash-5.2/support/config.sub bash-5.2-diff/support/config.sub
+--- bash-5.2/support/config.sub	2022-01-11 19:38:29.000000000 +0000
++++ bash-5.2-diff/support/config.sub	2023-08-15 11:28:12.212111533 +0000
+@@ -1728,7 +1728,7 @@
+ 	     | hpux* | unos* | osf* | luna* | dgux* | auroraux* | solaris* \
+ 	     | sym* |  plan9* | psp* | sim* | xray* | os68k* | v88r* \
+ 	     | hiux* | abug | nacl* | netware* | windows* \
+-	     | os9* | macos* | osx* | ios* \
++	     | os9* | macos* | osx* | ios* | rook* \
+ 	     | mpw* | magic* | mmixware* | mon960* | lnews* \
+ 	     | amigaos* | amigados* | msdos* | newsos* | unicos* | aof* \
+ 	     | aos* | aros* | cloudabi* | sortix* | twizzler* \

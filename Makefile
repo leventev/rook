@@ -1,19 +1,19 @@
 ARCH=x86_64
 
-CARGOFLAGS=--target x86_64-rook.json
+CARGOFLAGS=
 RUSTFLAGS=-Cforce-frame-pointers=yes
 QEMUFLAGS=-m 128M -serial stdio -vga std -no-reboot -no-shutdown\
 -drive file=$(IMAGE),if=ide,media=disk,format=raw\
 
 SYSROOT=$(shell realpath root)
 
-CROSSDIR=/opt/cross
+CROSSDIR=$(HOME)/opt/cross
 
 BINUTILS_COMPFLAGS=--target=x86_64-rook --prefix=$(CROSSDIR)\
 	--with-sysroot=$(SYSROOT) --disable-nls --disable-werror
 
 GCC_COMPFLAGS=--target=x86_64-rook --prefix=$(CROSSDIR)\
-	--with-sysroot=$(SYSROOT) --disable-nls --disable-werror --enable-languages=c
+	--with-sysroot=$(SYSROOT) --disable-nls --disable-werror --enable-languages=c,c++
 
 .PHONY: libc
 
@@ -50,12 +50,9 @@ sysroot:
 copy-libc-headers: sysroot
 	cp -rfT libc/include/public $(SYSROOT)/usr/include
 
-libc: copy-libc-headers
-#	cp include/ark/arch/x86/syscalls.h libc/include/public
-# TODO: remove ^
-	cd libc && $(MAKE) && $(MAKE) crt0
-	cp libc/bin/libc.a $(SYSROOT)/usr/lib/libc.a
-	cp libc/bin/crt0.o $(SYSROOT)/usr/lib/crt0.o
+libc: sysroot
+	cd mlibc && meson setup --cross x86_64-rook.txt -Ddefault_library=static -Dprefix=/home/elzett/projects/rook/root/usr build-rook
+	cd mlibc/build-rook && meson compile && meson install
 
 build-binutils:
 	mkdir -p binutils_build

@@ -16,6 +16,7 @@ enum SyscallIOError {
     InvalidFD,
     InvalidPath,
     InvalidWhence,
+    InvalidCommand,
 }
 
 impl SyscallIOError {
@@ -23,7 +24,9 @@ impl SyscallIOError {
         let val = match self {
             SyscallIOError::InvalidFD => errno::EBADF,
             // TODO: dirname error
-            SyscallIOError::InvalidPath | SyscallIOError::InvalidWhence => errno::EINVAL,
+            SyscallIOError::InvalidPath
+            | SyscallIOError::InvalidWhence
+            | SyscallIOError::InvalidCommand => errno::EINVAL,
         };
 
         (-val) as u64
@@ -102,8 +105,8 @@ fn read(
 pub fn sys_openat(proc: Arc<Mutex<Process>>, args: [u64; 6]) -> u64 {
     let dirfd = args[0] as isize;
     let pathname = args[1] as *const c_char;
-    let flags = FileOpenFlags::from_bits(args[2] as u32).unwrap();
-    let mode = FileOpenMode::from_bits(args[3] as u32).unwrap();
+    let flags = FileOpenFlags::from_bits_truncate(args[2] as u32);
+    let mode = FileOpenMode::from_bits_truncate(args[3] as u32);
 
     match openat(proc, dirfd, pathname, flags, mode) {
         Ok(n) => n as u64,
@@ -238,7 +241,7 @@ fn fcntl(
             warn!("fcntl F_SETFL not implemented");
             Ok(0)
         }
-        _ => unreachable!(),
+        _ => Err(SyscallIOError::InvalidCommand),
     }
 }
 
