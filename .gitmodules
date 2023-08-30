@@ -7,3 +7,6 @@
 [submodule "libc"]
 	path = libc
 	url = git@github.com:leventev/libc.git
+[submodule "mlibc"]
+	path = mlibc
+	url = git@github.com:leventev/mlibc.git
