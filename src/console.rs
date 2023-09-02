@@ -7,8 +7,14 @@ use crate::{
         keyboard::{KeyEvent, PS2KeyboardEventHandler, PS2_KEY_BACKSPACE},
     },
     framebuffer,
-    fs::devfs::{self, DevFsDevice},
-    posix::{Termios, ECHO, ICANON, ISIG, NCCS, TCGETS, TCSETS, TIOCGPGRP, TIOCSPGRP, S_IFCHR},
+    fs::{devfs::{self, DevFsDevice}, FileSystemError},
+    posix::{
+        termios::{
+            Termios, Winsize, ECHO, ICANON, ISIG, NCCS, TCGETS, TCSETS, TIOCGPGRP, TIOCGWINSZ,
+            TIOCSPGRP, TIOCSWINSZ,
+        },
+        S_IFCHR,
+    },
     sync::InterruptMutex,
 };
 
@@ -215,13 +221,33 @@ impl DevFsDevice for Console {
                 let ptr = arg as *const u32;
                 state.controlling_process_group = unsafe { ptr.read() } as usize;
             }
+            TIOCGWINSZ => {
+                let terminal = self.terminal.lock();
+                let ptr = arg as *mut Winsize;
+                unsafe {
+                    (*ptr).ws_col = terminal.width as u16;
+                    (*ptr).ws_row = terminal.height as u16;
+                }
+            }
+            TIOCSWINSZ => {
+                let mut terminal = self.terminal.lock();
+                let ptr = arg as *const Winsize;
+                unsafe {
+                    terminal.width = (*ptr).ws_col as usize;
+                    terminal.height = (*ptr).ws_row as usize;
+                }
+            }
             _ => panic!("unimplemented ioctl req {}", req),
         }
 
         Ok(0)
     }
 
-    fn stat(&self, _minor: u16, stat_buf: &mut crate::posix::Stat) -> Result<(), crate::fs::FileSystemError> {
+    fn stat(
+        &self,
+        _minor: u16,
+        stat_buf: &mut crate::posix::Stat,
+    ) -> Result<(), crate::fs::FileSystemError> {
         // TODO
         stat_buf.st_blksize = 4096;
         stat_buf.st_blocks = 0;

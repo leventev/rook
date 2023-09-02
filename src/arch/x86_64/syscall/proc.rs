@@ -13,7 +13,8 @@ use crate::{
         proc::{get_process, Process},
         thread::{ThreadID, ThreadInner, ThreadLocalStorage},
         SCHEDULER,
-    }, time,
+    },
+    time,
 };
 
 bitflags! {
@@ -49,6 +50,7 @@ enum SyscallProcError {
     InvalidPID,
     NotFoundPID,
     InvalidRequest,
+    BuffTooSmall,
 }
 
 impl SyscallProcError {
@@ -56,7 +58,8 @@ impl SyscallProcError {
         let val = match self {
             Self::InvalidPID => errno::EINVAL,
             Self::NotFoundPID => errno::ESRCH,
-            Self::InvalidRequest => errno::EINVAL
+            Self::InvalidRequest => errno::EINVAL,
+            Self::BuffTooSmall => errno::ERANGE,
         };
 
         (-val) as u64
@@ -92,18 +95,18 @@ pub fn sys_getcwd(proc: Arc<Mutex<Process>>, args: [u64; 6]) -> u64 {
     let buff = unsafe { slice::from_raw_parts_mut(args[0] as *mut u8, len) };
 
     match getcwd(proc, buff) {
-        Ok(_) => args[0],
-        Err(_) => 0,
+        Ok(_) => 0,
+        Err(err) => err.as_errno(),
     }
 }
 
-fn getcwd(proc: Arc<Mutex<Process>>, buff: &mut [u8]) -> Result<(), ()> {
+fn getcwd(proc: Arc<Mutex<Process>>, buff: &mut [u8]) -> Result<(), SyscallProcError> {
     let p = proc.lock();
     let vnode = &p.cwd.lock().vnode;
     let vnode_path = vnode.path();
 
     if vnode_path.len() > buff.len() {
-        return Err(());
+        return Err(SyscallProcError::BuffTooSmall);
     }
 
     let buff = &mut buff[..vnode_path.len() + 1];

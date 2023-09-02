@@ -10,7 +10,7 @@ use crate::{
         virt::{switch_pml4, PAGE_SIZE_4KIB, PML4},
         PhysAddr, VirtAddr,
     },
-    posix::{Stat, AT_FCWD},
+    posix::{Stat, AT_FCWD, FileOpenFlags},
     scheduler::{ThreadInner, SCHEDULER},
     utils::slot_allocator::SlotAllocator,
 };
@@ -458,7 +458,8 @@ impl Process {
 
         self.mapped_regions.clear();
 
-        let mut fd = fs::open(exec_path).unwrap();
+        // TODO: proper flags
+        let mut fd = fs::open(exec_path, FileOpenFlags::empty()).unwrap();
 
         let mut stat_buf = Stat::zero();
         fd.stat(&mut stat_buf).unwrap();
@@ -545,7 +546,8 @@ impl Process {
 
     fn open_std_streams(&mut self) {
         // open console
-        let console_fd = fs::open("/dev/console").expect("Failed to open /dev/console");
+        // TODO: proper flags
+        let console_fd = fs::open("/dev/console", FileOpenFlags::O_RDWR).expect("Failed to open /dev/console");
 
         // stdin
         let fd = self
@@ -631,7 +633,8 @@ pub fn load_base_process(exec_path: &str) {
 
     {
         let cwd = Arc::new(Mutex::new(
-            *fs::open("/root").expect("Failed to open /root"),
+            // TODO: proper flags
+            *fs::open("/root", FileOpenFlags::empty()).expect("Failed to open /root"),
         ));
 
         let proc_lock = Process::create_base_process(cwd);
@@ -642,7 +645,7 @@ pub fn load_base_process(exec_path: &str) {
         main_thread_id = proc.main_thread.upgrade().unwrap().lock().id;
 
         let argv = [<&str>::clone(&exec_path)];
-        let envp = [];
+        let envp = ["HOME=/root"];
 
         proc.load_from_file(exec_path, &argv[..], &envp[..])
             .expect("Failed to load base process");

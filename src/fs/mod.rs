@@ -10,7 +10,7 @@ use alloc::{
 };
 use spin::RwLock;
 
-use crate::{blk::Partition, posix::Stat};
+use crate::{blk::Partition, posix::{Stat, FileOpenFlags}};
 
 use self::inode::FSInode;
 
@@ -28,6 +28,7 @@ pub enum FileSystemError {
     InvalidBuffer,
     BlockDeviceError,
     IsDirectory,
+    NotSeekable
 }
 
 pub enum SeekWhence {
@@ -131,6 +132,7 @@ impl VFSNode {
 pub struct FileDescriptor {
     pub vnode: Arc<VFSNode>,
     pub offset: usize,
+    pub flags: FileOpenFlags
 }
 
 impl Drop for FileDescriptor {
@@ -367,7 +369,7 @@ impl VirtualFileSystem {
         }
     }
 
-    fn open(&mut self, path: &str) -> Result<Box<FileDescriptor>, FileSystemError> {
+    fn open(&mut self, path: &str, flags: FileOpenFlags) -> Result<Box<FileDescriptor>, FileSystemError> {
         debug!("vfs open {}", path);
 
         let parsed_path = match parse_path(path) {
@@ -400,6 +402,7 @@ impl VirtualFileSystem {
         Ok(Box::new(FileDescriptor {
             vnode: Arc::clone(node),
             offset: 0,
+            flags
         }))
     }
 
@@ -454,10 +457,10 @@ pub fn mount(path: &str, part: Weak<Partition>, fs_name: &str) -> Result<(), Fil
     vfs.mount(path, part, fs_name)
 }
 
-pub fn open(path: &str) -> Result<Box<FileDescriptor>, FileSystemError> {
+pub fn open(path: &str, flags: FileOpenFlags) -> Result<Box<FileDescriptor>, FileSystemError> {
     let node = {
         let mut vfs = VFS.write();
-        match vfs.open(path) {
+        match vfs.open(path, flags) {
             Ok(node) => node,
             Err(err) => return Err(err),
         }

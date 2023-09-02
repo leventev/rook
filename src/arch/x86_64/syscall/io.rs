@@ -6,7 +6,8 @@ use spin::Mutex;
 use crate::{
     fs::{self, FileSystemError, SeekWhence},
     posix::{
-        errno, FileOpenFlags, FileOpenMode, Stat, F_DUPFD, F_GETFD, F_GETFL, F_SETFD, F_SETFL,
+        errno, FileOpenFlags, FileOpenMode, Stat, F_DUPFD, F_DUPFD_CLOEXEC, F_GETFD, F_GETFL,
+        F_SETFD, F_SETFL,
     },
     scheduler::proc::Process,
 };
@@ -17,6 +18,7 @@ enum SyscallIOError {
     InvalidPath,
     InvalidWhence,
     InvalidCommand,
+    NotSeekable,
 }
 
 impl SyscallIOError {
@@ -27,6 +29,7 @@ impl SyscallIOError {
             SyscallIOError::InvalidPath
             | SyscallIOError::InvalidWhence
             | SyscallIOError::InvalidCommand => errno::EINVAL,
+            SyscallIOError::NotSeekable => errno::ESPIPE,
         };
 
         (-val) as u64
@@ -37,6 +40,7 @@ impl FileSystemError {
     fn as_syscall_io_error(&self) -> SyscallIOError {
         match self {
             FileSystemError::FileNotFound => SyscallIOError::InvalidPath,
+            FileSystemError::NotSeekable => SyscallIOError::NotSeekable,
             _ => unreachable!(),
         }
     }
@@ -118,7 +122,7 @@ fn openat(
     proc: Arc<Mutex<Process>>,
     dirfd: isize,
     pathname: *const c_char,
-    _flags: FileOpenFlags,
+    flags: FileOpenFlags,
     _mode: FileOpenMode,
 ) -> Result<usize, SyscallIOError> {
     // TODO: flags, mode
@@ -126,14 +130,14 @@ fn openat(
 
     // TODO: validate path
     let path = unsafe { CStr::from_ptr(pathname) }.to_str().unwrap();
-
+    debug!("openat {} {}", dirfd, path);
     let full_path = match p.get_full_path_from_dirfd(dirfd, path) {
         Ok(path) => path,
         Err(_) => return Err(SyscallIOError::InvalidFD),
     };
 
     let file_desc = {
-        let desc = match fs::open(full_path.as_str()) {
+        let desc = match fs::open(full_path.as_str(), flags) {
             Ok(desc) => desc,
             Err(err) => return Err(err.as_syscall_io_error()),
         };
@@ -223,22 +227,40 @@ fn fcntl(
 ) -> Result<usize, SyscallIOError> {
     let mut p = proc.lock();
 
+    let node = match p.get_fd(fd) {
+        Some(x) => x,
+        None => return Err(SyscallIOError::InvalidFD),
+    };
+
     match cmd {
         F_DUPFD => match p.dup_fd(Some(arg), fd) {
             Ok(new_fd) => Ok(new_fd),
             Err(_) => Err(SyscallIOError::InvalidFD),
         },
-        F_GETFD => Ok(0),
+        F_DUPFD_CLOEXEC => {
+            warn!("F_DUPFD_CLOEXEC cloexec ignored, doing F_DUPFD instead");
+            match p.dup_fd(Some(arg), fd) {
+                Ok(new_fd) => Ok(new_fd),
+                Err(_) => Err(SyscallIOError::InvalidFD),
+            }
+        }
+        F_GETFD => {
+            warn!("fcntl F_GETFD not implemented");
+            Ok(0)
+        }
         F_SETFD => {
             // TODO
+            warn!("fcntl F_SETFD not implemented");
             Ok(0)
         }
         F_GETFL => {
-            warn!("fcntl F_GETFL not implemented");
-            Ok(0)
+            // TODO: mode
+            let flags = node.lock().flags;
+            Ok(flags.bits() as usize)
         }
         F_SETFL => {
-            warn!("fcntl F_SETFL not implemented");
+            let flags = FileOpenFlags::from_bits_truncate(arg as u32);
+            node.lock().flags = flags;
             Ok(0)
         }
         _ => Err(SyscallIOError::InvalidCommand),
@@ -327,7 +349,8 @@ fn chdir(proc: Arc<Mutex<Process>>, path: *const c_char) -> Result<usize, Syscal
     let mut p = proc.lock();
 
     let path = unsafe { CStr::from_ptr(path) }.to_str().unwrap();
-    let new_cwd = Arc::new(Mutex::new(match fs::open(path) {
+    // TODO: proper flags
+    let new_cwd = Arc::new(Mutex::new(match fs::open(path, FileOpenFlags::empty()) {
         Ok(fd) => *fd,
         Err(err) => return Err(err.as_syscall_io_error()),
     }));
@@ -353,4 +376,9 @@ fn log(proc: Arc<Mutex<Process>>, message: *const c_char) -> Result<(), SyscallI
     log!("process {}: {}", p.pid, message);
 
     Ok(())
+}
+
+
+pub fn sys_pselect(_proc: Arc<Mutex<Process>>, _args: [u64; 6]) -> u64 {
+    1
 }
