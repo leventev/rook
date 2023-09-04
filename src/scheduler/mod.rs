@@ -8,7 +8,7 @@ use crate::{
         registers::{InterruptRegisters, RegisterState},
         set_fs_base, set_segment_selectors,
     },
-    mm::virt::PML4,
+    mm::{virt::PML4, VirtAddr},
     scheduler::thread::ThreadState,
     sync::InterruptMutex,
 };
@@ -183,22 +183,20 @@ impl Scheduler {
             }
 
             let (regs, tls) = match &next_thread.inner {
-                ThreadInner::Kernel(data) => (&data.regs, &None),
+                ThreadInner::Kernel(data) => (&data.regs, VirtAddr::zero()),
                 ThreadInner::User(data) => (
                     if data.in_kernelspace {
                         &data.kernel_regs
                     } else {
                         &data.user_regs
                     },
-                    &data.tls,
+                    data.tls,
                 ),
             };
 
             set_segment_selectors(regs.selectors.es);
 
-            if let Some(tls) = tls {
-                set_fs_base(tls.thead_struct_addr());
-            }
+            set_fs_base(tls);
 
             **regs
         };
@@ -232,22 +230,20 @@ impl Scheduler {
 
         // TODO: dont copy registers
         let (regs, tls) = match &next_thread.inner {
-            ThreadInner::Kernel(data) => (&data.regs, &None),
+            ThreadInner::Kernel(data) => (&data.regs, VirtAddr::zero()),
             ThreadInner::User(data) => (
                 if data.in_kernelspace {
                     &data.kernel_regs
                 } else {
                     &data.user_regs
                 },
-                &data.tls,
+                data.tls,
             ),
         };
 
         set_segment_selectors(regs.selectors.es);
 
-        if let Some(tls) = tls {
-            set_fs_base(tls.thead_struct_addr());
-        }
+        set_fs_base(tls);
 
         int_regs.general = regs.general;
         int_regs.iret.rip = regs.rip;

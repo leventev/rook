@@ -53,7 +53,7 @@ static SYSCALL_TABLE: &[Syscall] = &[
     Syscall::new("log", x86_64::syscall::io::sys_log),
     Syscall::new("archctl", x86_64::syscall::proc::sys_archctl),
     Syscall::new("gettimeofday", x86_64::syscall::proc::sys_gettimeofday),
-    Syscall::new("pselect", x86_64::syscall::io::sys_pselect)
+    Syscall::new("pselect", x86_64::syscall::io::sys_pselect),
 ];
 
 #[no_mangle]
@@ -114,9 +114,8 @@ fn handle_syscall(interrupt_regs: &mut InterruptRegisters) {
             interrupt_regs.iret.rsp = data.user_regs.rsp;
 
             set_segment_selectors(data.user_regs.selectors.es);
-            if let Some(tls) = &data.tls {
-                set_fs_base(tls.thead_struct_addr());
-            }
+            debug!("set fs base to {}", data.tls);
+            set_fs_base(data.tls);
 
             data.in_kernelspace = false;
         } else {

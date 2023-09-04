@@ -43,25 +43,28 @@ qemu: image
 qemu-debug: QEMUFLAGS += -s -S
 qemu-debug: qemu
 
-sysroot:
+$(SYSROOT):
 	mkdir -p $(SYSROOT)/usr/include
 	mkdir -p $(SYSROOT)/usr/lib
+	mkdir -p $(SYSROOT)/bin
 
-copy-libc-headers: sysroot
-	cp -rfT libc/include/public $(SYSROOT)/usr/include
+copy-libc-headers: $(SYSROOT)
+	cd mlibc && meson setup --cross x86_64-rook.txt -Ddefault_library=static -Dheaders_only=true -Dprefix=$(SYSROOT)/usr build-rook
+	cd mlibc/build-rook && meson install
+	rm -rf mlibc/build_rook
 
-libc: sysroot
-	cd mlibc && meson setup --cross x86_64-rook.txt -Ddefault_library=static -Dprefix=/home/elzett/projects/rook/root/usr build-rook
+libc: $(SYSROOT)
+	cd mlibc && meson setup --cross x86_64-rook.txt -Ddefault_library=static -Dprefix=$(SYSROOT)/usr build-rook
 	cd mlibc/build-rook && meson compile && meson install
 
-build-binutils:
+build-binutils: copy-libc-headers
 	mkdir -p binutils_build
 	cd binutils_build\
 	&& ../toolchain/binutils-$(BINUTILS_VER)/configure $(BINUTILS_COMPFLAGS)\
 	&& $(MAKE) && make install
 	rm -rf binutils_build
 
-build-gcc:
+build-gcc: copy-libc-headers
 	mkdir -p gcc_build
 	cd gcc_build\
 	&& ../toolchain/gcc-$(GCC_VER)/configure $(GCC_COMPFLAGS)\

@@ -7,7 +7,7 @@ use crate::{
         keyboard::{KeyEvent, PS2KeyboardEventHandler, PS2_KEY_BACKSPACE},
     },
     framebuffer,
-    fs::{devfs::{self, DevFsDevice}, FileSystemError},
+    fs::devfs::{self, DevFsDevice},
     posix::{
         termios::{
             Termios, Winsize, ECHO, ICANON, ISIG, NCCS, TCGETS, TCSETS, TIOCGPGRP, TIOCGWINSZ,

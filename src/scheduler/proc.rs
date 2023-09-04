@@ -10,7 +10,7 @@ use crate::{
         virt::{switch_pml4, PAGE_SIZE_4KIB, PML4},
         PhysAddr, VirtAddr,
     },
-    posix::{Stat, AT_FCWD, FileOpenFlags},
+    posix::{FileOpenFlags, Stat, AT_FCWD},
     scheduler::{ThreadInner, SCHEDULER},
     utils::slot_allocator::SlotAllocator,
 };
@@ -22,14 +22,14 @@ use alloc::{
     vec::Vec,
 };
 use elf::{
-    abi::{PF_X, PT_LOAD, PT_TLS},
+    abi::{PF_X, PT_LOAD},
     endian::LittleEndian,
     segment::ProgramHeader,
     ElfBytes,
 };
 use spin::Mutex;
 
-use super::{thread::ThreadLocalStorage, Thread, ThreadID};
+use super::{Thread, ThreadID};
 
 bitflags::bitflags! {
     pub struct MappedRegionFlags: u64 {
@@ -337,26 +337,6 @@ impl Process {
         Ok(())
     }
 
-    fn load_tls_segment(
-        &mut self,
-        file: &[u8],
-        header: &ProgramHeader,
-    ) -> Result<ThreadLocalStorage, ()> {
-        // TODO: thread structure
-        const TLS_BASE: VirtAddr = VirtAddr::new(0xfffffd0000000000);
-        self.load_segment(file, header, TLS_BASE)?;
-
-        let tls = ThreadLocalStorage::new(TLS_BASE, header.p_memsz as usize);
-
-        let thread_struct_addr = tls.thead_struct_addr().get();
-        let ptr = thread_struct_addr as *mut u64;
-        unsafe {
-            *ptr = thread_struct_addr;
-        }
-
-        Ok(tls)
-    }
-
     fn load_normal_segment(&mut self, file: &[u8], header: &ProgramHeader) -> Result<(), ()> {
         self.load_segment(file, header, VirtAddr::new(header.p_vaddr))
     }
@@ -411,7 +391,7 @@ impl Process {
         &mut self,
         file: &[u8],
         elf_file: &ElfBytes<'_, LittleEndian>,
-    ) -> Result<Option<ThreadLocalStorage>, ()> {
+    ) -> Result<(), ()> {
         let segments = match elf_file.segments() {
             Some(segs) => segs,
             None => return Err(()),
@@ -419,20 +399,10 @@ impl Process {
 
         // TODO TODO
         // FIXME
-
-        let mut tls: Option<ThreadLocalStorage> = None;
-
         // TODO: check if the segments are in userspace
         for ph in segments {
             match ph.p_type {
                 PT_LOAD => self.load_normal_segment(file, &ph).unwrap(),
-                PT_TLS => match tls {
-                    Some(_) => warn!(
-                        "ignoring PT_TLS segment because we have already loaded one, segment: {:?}",
-                        ph
-                    ),
-                    None => (), //tls = self.load_tls_segment(file, &ph).ok(),
-                },
                 _ => {
                     warn!("ignoring segment: {:?}", ph);
                     continue;
@@ -440,7 +410,7 @@ impl Process {
             };
         }
 
-        Ok(tls)
+        Ok(())
     }
 
     pub fn load_from_file(
@@ -481,7 +451,7 @@ impl Process {
         };
 
         switch_pml4(&self.pml4);
-        let tls = self.load_segments(&buff, &elf_file).unwrap();
+        self.load_segments(&buff, &elf_file).unwrap();
 
         const STACK_BASE: u64 = 0xfffffd8000000000;
         const STACK_SIZE_IN_PAGES: u64 = 16; // 64 KiB
@@ -534,8 +504,6 @@ impl Process {
             data.user_regs.rip = elf_file.ehdr.e_entry;
             data.user_regs.rsp = stack_top;
 
-            data.tls = tls;
-
             data.pid = self.pid;
         } else {
             unreachable!()
@@ -547,7 +515,8 @@ impl Process {
     fn open_std_streams(&mut self) {
         // open console
         // TODO: proper flags
-        let console_fd = fs::open("/dev/console", FileOpenFlags::O_RDWR).expect("Failed to open /dev/console");
+        let console_fd =
+            fs::open("/dev/console", FileOpenFlags::O_RDWR).expect("Failed to open /dev/console");
 
         // stdin
         let fd = self

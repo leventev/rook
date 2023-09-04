@@ -56,7 +56,7 @@ fn mmap(
     };
 
     if len == 0 {
-        return Err(SyscallMapError::InvalidLength)
+        return Err(SyscallMapError::InvalidLength);
     }
 
     let flags = MappedRegionFlags::READ_WRITE | MappedRegionFlags::ALLOC_ON_ACCESS;

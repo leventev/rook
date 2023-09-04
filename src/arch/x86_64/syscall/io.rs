@@ -378,7 +378,6 @@ fn log(proc: Arc<Mutex<Process>>, message: *const c_char) -> Result<(), SyscallI
     Ok(())
 }
 
-
 pub fn sys_pselect(_proc: Arc<Mutex<Process>>, _args: [u64; 6]) -> u64 {
     1
 }

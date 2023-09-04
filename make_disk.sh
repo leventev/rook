@@ -30,4 +30,5 @@ cp target/x86_64-rook/debug/rook /mnt/rook_disk/boot
 umount $TESTIMGPATH
 losetup -d /dev/loop0
 
-./limine/limine bios-install $TESTIMGPATH
+cd limine && make && cd ..
+limine/limine bios-install $TESTIMGPATH

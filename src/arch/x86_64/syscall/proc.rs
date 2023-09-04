@@ -11,7 +11,7 @@ use crate::{
     scheduler::{
         self,
         proc::{get_process, Process},
-        thread::{ThreadID, ThreadInner, ThreadLocalStorage},
+        thread::{ThreadID, ThreadInner},
         SCHEDULER,
     },
     time,
@@ -323,7 +323,7 @@ fn archctl(proc: Arc<Mutex<Process>>, req: usize, arg: usize) -> Result<(), Sysc
         SET_FS => {
             // TODO: check if fs is valid
             if let ThreadInner::User(data) = &mut main_thread.inner {
-                data.tls = Some(ThreadLocalStorage::new(VirtAddr::new(arg as u64), 0));
+                data.tls = VirtAddr::new(arg as u64);
             }
             Ok(())
         }
