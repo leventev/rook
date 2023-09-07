@@ -114,7 +114,6 @@ fn handle_syscall(interrupt_regs: &mut InterruptRegisters) {
             interrupt_regs.iret.rsp = data.user_regs.rsp;
 
             set_segment_selectors(data.user_regs.selectors.es);
-            debug!("set fs base to {}", data.tls);
             set_fs_base(data.tls);
 
             data.in_kernelspace = false;

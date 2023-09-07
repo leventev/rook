@@ -4,7 +4,10 @@ use alloc::{boxed::Box, string::String, sync::Weak};
 
 use crate::{
     blk::{IORequest, LinearBlockAddress, Partition, BLOCK_SIZE},
-    fs::{self, inode::FSInode, FileSystemError, FileSystemInner, FileSystemSkeleton},
+    fs::{
+        self, inode::FSInode, FileSystemInner, FileSystemSkeleton, FsCloseError, FsInitError,
+        FsIoctlError, FsOpenError, FsPathError, FsReadError, FsStatError, FsWriteError,
+    },
     posix::{Stat, S_IFDIR, S_IFREG},
     utils::slot_allocator::SlotAllocator,
 };
@@ -173,7 +176,7 @@ struct FATFileSystem {
 }
 
 impl FATFileSystem {
-    pub fn new(part: Weak<Partition>) -> Result<FATFileSystem, FileSystemError> {
+    pub fn new(part: Weak<Partition>) -> Result<FATFileSystem, FsInitError> {
         let p = part.upgrade().unwrap();
 
         let mut bios_parameter_block: [u8; BLOCK_SIZE] = unsafe {
@@ -188,7 +191,7 @@ impl FATFileSystem {
         .unwrap();
 
         if bios_parameter_block[510..] != MAGIC_NUMBER {
-            return Err(FileSystemError::FailedToInitializeFileSystem);
+            return Err(FsInitError::InvalidMagic);
         }
 
         let bios_parameter_data: &BIOSPBLegacy = unsafe {
@@ -199,7 +202,7 @@ impl FATFileSystem {
 
         if bios_parameter_data.root_dir_entries != 0 {
             log!("FAT: non FAT-32 FAT filesystem detected");
-            return Err(FileSystemError::FailedToInitializeFileSystem);
+            return Err(FsInitError::InvalidSuperBlock);
         }
 
         let extended_bpd: &ExtendedBIOSPB = unsafe {
@@ -504,7 +507,7 @@ impl FATFileSystem {
 }
 
 impl FileSystemInner for FATFileSystem {
-    fn open(&mut self, path: &[String]) -> Result<FSInode, fs::FileSystemError> {
+    fn open(&mut self, path: &[String]) -> Result<FSInode, FsOpenError> {
         if path.is_empty() {
             return Ok(FSInode::new(0));
         }
@@ -521,11 +524,11 @@ impl FileSystemInner for FATFileSystem {
                 debug!("fat32 open inode: {}", inode);
                 Ok(FSInode(inode as u64))
             }
-            None => Err(FileSystemError::FileNotFound),
+            None => Err(FsOpenError::BadPath(FsPathError::Placeholder)),
         }
     }
 
-    fn stat(&mut self, inode: FSInode, stat_buf: &mut Stat) -> Result<(), FileSystemError> {
+    fn stat(&mut self, inode: FSInode, stat_buf: &mut Stat) -> Result<(), FsStatError> {
         let (file_size, file_type) = if inode == FSInode(0) {
             (0, S_IFDIR)
         } else {
@@ -549,7 +552,7 @@ impl FileSystemInner for FATFileSystem {
         Ok(())
     }
 
-    fn close(&mut self, inode: FSInode) -> Result<(), fs::FileSystemError> {
+    fn close(&mut self, inode: FSInode) -> Result<(), FsCloseError> {
         if inode == FSInode(0) {
             return Ok(());
         }
@@ -563,8 +566,7 @@ impl FileSystemInner for FATFileSystem {
         inode: FSInode,
         offset: usize,
         buff: &mut [u8],
-        size: usize,
-    ) -> Result<usize, fs::FileSystemError> {
+    ) -> Result<usize, FsReadError> {
         assert!(inode != FSInode(0));
 
         let part = self.partition.upgrade().unwrap();
@@ -579,7 +581,7 @@ impl FileSystemInner for FATFileSystem {
             assert!(cluster.valid_cluster());
         }
 
-        let mut buff_left = size;
+        let mut buff_left = buff.len();
         let mut size_left = file.file_size();
 
         if offset >= size_left {
@@ -613,7 +615,7 @@ impl FileSystemInner for FATFileSystem {
                 size: 1,
             });
             if res.is_err() {
-                return Err(FileSystemError::BlockDeviceError);
+                todo!()
             }
 
             // TODO: optimize
@@ -637,23 +639,17 @@ impl FileSystemInner for FATFileSystem {
         inode: FSInode,
         _offset: usize,
         _buff: &[u8],
-        _size: usize,
-    ) -> Result<usize, fs::FileSystemError> {
+    ) -> Result<usize, FsWriteError> {
         assert!(inode != FSInode(0));
         todo!()
     }
 
-    fn ioctl(
-        &mut self,
-        _inode: FSInode,
-        _req: usize,
-        _arg: usize,
-    ) -> Result<usize, FileSystemError> {
+    fn ioctl(&mut self, _inode: FSInode, _req: usize, _arg: usize) -> Result<usize, FsIoctlError> {
         todo!()
     }
 }
 
-fn create_fs(part: Weak<Partition>) -> Result<Box<dyn FileSystemInner>, FileSystemError> {
+fn create_fs(part: Weak<Partition>) -> Result<Box<dyn FileSystemInner>, FsInitError> {
     match FATFileSystem::new(part) {
         Ok(fs) => Ok(Box::new(fs)),
         Err(err) => Err(err),

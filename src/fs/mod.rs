@@ -12,7 +12,10 @@ use spin::RwLock;
 
 use crate::{
     blk::Partition,
-    posix::{FileOpenFlags, Stat},
+    posix::{
+        errno::{Errno, ENOSYS},
+        FileOpenFlags, Stat,
+    },
 };
 
 use self::inode::FSInode;
@@ -21,17 +24,48 @@ pub mod devfs;
 pub mod inode;
 
 #[derive(Debug)]
-pub enum FileSystemError {
-    FailedToInitializeFileSystem,
-    AlreadyMounted,
-    FsSkeletonNotFound,
-    FsSkeletonAlreadyExists,
-    InvalidPath,
-    FileNotFound,
-    InvalidBuffer,
-    BlockDeviceError,
-    IsDirectory,
-    NotSeekable,
+pub enum FsPathError {
+    // TODO: normal path errors
+    Placeholder,
+}
+
+#[derive(Debug)]
+pub enum FsReadError {}
+
+#[derive(Debug)]
+pub enum FsWriteError {}
+
+#[derive(Debug)]
+pub enum FsOpenError {
+    BadPath(FsPathError),
+}
+
+#[derive(Debug)]
+pub enum FsCloseError {}
+
+#[derive(Debug)]
+pub enum FsStatError {
+    BadPath(FsPathError),
+}
+
+#[derive(Debug)]
+pub enum FsIoctlError {}
+
+#[derive(Debug)]
+pub enum FsSeekError {}
+
+#[derive(Debug)]
+pub enum FsInitError {
+    InvalidSkeleton,
+    InvalidMagic,
+    InvalidSuperBlock,
+}
+
+#[derive(Debug)]
+pub enum FsMountError {
+    BadPath(FsPathError),
+    PathAlreadyInUse,
+    FileSystemInitFailed(FsInitError),
 }
 
 pub enum SeekWhence {
@@ -40,39 +74,33 @@ pub enum SeekWhence {
     End,
 }
 
+impl FsPathError {
+    pub fn into_errno(self) -> Errno {
+        match self {
+            FsPathError::Placeholder => ENOSYS,
+        }
+    }
+}
+
 pub trait FileSystemInner: Debug {
     /// Opens a file, returns the inode
-    fn open(&mut self, path: &[String]) -> Result<FSInode, FileSystemError>;
+    fn open(&mut self, path: &[String]) -> Result<FSInode, FsOpenError>;
 
     /// Opens a file, returns the inode
-    fn close(&mut self, inode: FSInode) -> Result<(), FileSystemError>;
+    fn close(&mut self, inode: FSInode) -> Result<(), FsCloseError>;
 
-    /// Reads `size` bytes into `buff` from the `offset`, returns the number of bytes read
-    fn read(
-        &mut self,
-        inode: FSInode,
-        offset: usize,
-        buff: &mut [u8],
-        size: usize,
-    ) -> Result<usize, FileSystemError>;
+    fn read(&mut self, inode: FSInode, off: usize, buff: &mut [u8]) -> Result<usize, FsReadError>;
 
-    /// Writes `size` bytes from `buff` to the `offset`, returns the number of bytes written
-    fn write(
-        &mut self,
-        inode: FSInode,
-        offset: usize,
-        buff: &[u8],
-        size: usize,
-    ) -> Result<usize, FileSystemError>;
+    fn write(&mut self, inode: FSInode, off: usize, buff: &[u8]) -> Result<usize, FsWriteError>;
 
-    fn stat(&mut self, inode: FSInode, stat_buf: &mut Stat) -> Result<(), FileSystemError>;
+    fn stat(&mut self, inode: FSInode, stat_buf: &mut Stat) -> Result<(), FsStatError>;
 
-    fn ioctl(&mut self, inode: FSInode, req: usize, arg: usize) -> Result<usize, FileSystemError>;
+    fn ioctl(&mut self, inode: FSInode, req: usize, arg: usize) -> Result<usize, FsIoctlError>;
 }
 
 #[derive(Debug)]
 pub struct FileSystemSkeleton {
-    pub new: fn(part: Weak<Partition>) -> Result<Box<dyn FileSystemInner>, FileSystemError>,
+    pub new: fn(part: Weak<Partition>) -> Result<Box<dyn FileSystemInner>, FsInitError>,
     pub name: &'static str,
 }
 
@@ -151,11 +179,7 @@ impl Drop for FileDescriptor {
 }
 
 impl FileDescriptor {
-    pub fn read(&mut self, size: usize, buff: &mut [u8]) -> Result<usize, FileSystemError> {
-        if buff.len() != size {
-            return Err(FileSystemError::InvalidBuffer);
-        }
-
+    pub fn read(&mut self, buff: &mut [u8]) -> Result<usize, FsReadError> {
         if buff.len() == 0 {
             return Ok(0);
         }
@@ -163,20 +187,13 @@ impl FileDescriptor {
         let mount_lock = self.vnode.mount.upgrade().unwrap();
         let mut mount = mount_lock.write();
 
-        let read = mount
-            .fs
-            .inner
-            .read(self.vnode.inode, self.offset, buff, size)?;
+        let read = mount.fs.inner.read(self.vnode.inode, self.offset, buff)?;
         self.offset += read;
 
         Ok(read)
     }
 
-    pub fn write(&mut self, size: usize, buff: &[u8]) -> Result<usize, FileSystemError> {
-        if buff.len() != size {
-            return Err(FileSystemError::InvalidBuffer);
-        }
-
+    pub fn write(&mut self, buff: &[u8]) -> Result<usize, FsWriteError> {
         if buff.is_empty() {
             return Ok(0);
         }
@@ -184,36 +201,32 @@ impl FileDescriptor {
         let mount_lock = self.vnode.mount.upgrade().unwrap();
         let mut mount = mount_lock.write();
 
-        let read = mount
-            .fs
-            .inner
-            .write(self.vnode.inode, self.offset, buff, size)?;
+        let read = mount.fs.inner.write(self.vnode.inode, self.offset, buff)?;
         self.offset += read;
 
         Ok(read)
     }
 
-    pub fn stat(&self, stat_buf: &mut Stat) -> Result<(), FileSystemError> {
+    pub fn stat(&self, stat_buf: &mut Stat) -> Result<(), FsStatError> {
         let mount_lock = self.vnode.mount.upgrade().unwrap();
         let mut mount = mount_lock.write();
         mount.fs.inner.stat(self.vnode.inode, stat_buf)
     }
 
-    pub fn ioctl(&self, req: usize, arg: usize) -> Result<usize, FileSystemError> {
+    pub fn ioctl(&self, req: usize, arg: usize) -> Result<usize, FsIoctlError> {
         let mount_lock = self.vnode.mount.upgrade().unwrap();
         let mut mount = mount_lock.write();
         mount.fs.inner.ioctl(self.vnode.inode, req, arg)
     }
 
-    pub fn lseek(&mut self, offset: usize, whence: SeekWhence) -> Result<usize, FileSystemError> {
-        // TODO: normal SeekWhence::End
-
+    pub fn lseek(&mut self, offset: usize, whence: SeekWhence) -> Result<usize, FsSeekError> {
         let new_off = match whence {
             SeekWhence::Set => offset,
             SeekWhence::Cur => self.offset + offset,
             SeekWhence::End => {
+                // TODO: normal SeekWhence::End
                 let mut buff = Stat::zero();
-                self.stat(&mut buff)?;
+                self.stat(&mut buff).unwrap();
                 buff.st_size as usize + offset
             }
         };
@@ -240,25 +253,25 @@ impl VirtualFileSystem {
         &mut self,
         skel_name: &str,
         part: Weak<Partition>,
-    ) -> Result<FileSystem, FileSystemError> {
+    ) -> Result<FileSystem, FsInitError> {
         match self.fs_skeletons.iter().find(|fs| fs.name == skel_name) {
             Some(fs) => Ok(FileSystem {
                 name: fs.name,
                 inner: (fs.new)(part)?,
             }),
-            None => Err(FileSystemError::FsSkeletonNotFound),
+            None => Err(FsInitError::InvalidSkeleton),
         }
     }
 
     /// Registers a skeleton file system
-    fn register_fs_skeleton(&mut self, skel: FileSystemSkeleton) -> Result<(), FileSystemError> {
+    fn register_fs_skeleton(&mut self, skel: FileSystemSkeleton) -> Result<(), ()> {
         if self
             .fs_skeletons
             .iter()
             .find(|fs| fs.name == skel.name)
             .is_some()
         {
-            return Err(FileSystemError::FsSkeletonAlreadyExists);
+            return Err(());
         }
 
         if cfg!(vfs_debug) {
@@ -273,7 +286,7 @@ impl VirtualFileSystem {
         Ok(())
     }
 
-    fn mount_special(&mut self, path: &str, filesystem: FileSystem) -> Result<(), FileSystemError> {
+    fn mount_special(&mut self, path: &str, filesystem: FileSystem) -> Result<(), FsMountError> {
         if cfg!(vfs_debug) {
             log!(
                 "VFS: attempting to mount {} filesystem to {} ",
@@ -282,13 +295,11 @@ impl VirtualFileSystem {
             );
         }
 
-        let parsed_path = match parse_path(path) {
-            Some(s) => s,
-            None => return Err(FileSystemError::InvalidPath),
-        };
+        let parsed_path =
+            parse_path(path).ok_or(FsMountError::BadPath(FsPathError::Placeholder))?;
 
         if self.find_mount(&parsed_path).is_some() {
-            return Err(FileSystemError::AlreadyMounted);
+            return Err(FsMountError::PathAlreadyInUse);
         }
 
         self.mounts.push(Arc::new(RwLock::new(MountPoint {
@@ -305,7 +316,7 @@ impl VirtualFileSystem {
         path: &str,
         part: Weak<Partition>,
         fs_name: &str,
-    ) -> Result<(), FileSystemError> {
+    ) -> Result<(), FsMountError> {
         if cfg!(vfs_debug) {
             let blk_dev_name = {
                 let part = part.upgrade().unwrap();
@@ -323,16 +334,16 @@ impl VirtualFileSystem {
             );
         }
 
-        let parsed_path = match parse_path(path) {
-            Some(s) => s,
-            None => return Err(FileSystemError::InvalidPath),
-        };
+        let parsed_path =
+            parse_path(path).ok_or(FsMountError::BadPath(FsPathError::Placeholder))?;
 
         if self.find_mount(&parsed_path).is_some() {
-            return Err(FileSystemError::AlreadyMounted);
+            return Err(FsMountError::PathAlreadyInUse);
         }
 
-        let fs = self.create_new_filesystem(fs_name, part)?;
+        let fs = self
+            .create_new_filesystem(fs_name, part)
+            .map_err(|err| FsMountError::FileSystemInitFailed(err))?;
 
         self.mounts
             .push(Arc::new(RwLock::new(MountPoint::new(parsed_path, fs))));
@@ -376,13 +387,10 @@ impl VirtualFileSystem {
         &mut self,
         path: &str,
         flags: FileOpenFlags,
-    ) -> Result<Box<FileDescriptor>, FileSystemError> {
+    ) -> Result<Box<FileDescriptor>, FsOpenError> {
         debug!("vfs open {}", path);
 
-        let parsed_path = match parse_path(path) {
-            Some(s) => s,
-            None => return Err(FileSystemError::InvalidPath),
-        };
+        let parsed_path = parse_path(path).ok_or(FsOpenError::BadPath(FsPathError::Placeholder))?;
 
         let mount_lock = self
             .find_path_mount(&parsed_path)
@@ -413,11 +421,8 @@ impl VirtualFileSystem {
         }))
     }
 
-    fn stat(&mut self, path: &str, stat_buf: &mut Stat) -> Result<(), FileSystemError> {
-        let parsed_path = match parse_path(path) {
-            Some(s) => s,
-            None => return Err(FileSystemError::InvalidPath),
-        };
+    fn stat(&mut self, path: &str, stat_buf: &mut Stat) -> Result<(), FsStatError> {
+        let parsed_path = parse_path(path).ok_or(FsStatError::BadPath(FsPathError::Placeholder))?;
 
         let mount_lock = self
             .find_path_mount(&parsed_path)
@@ -430,9 +435,15 @@ impl VirtualFileSystem {
         // TODO: dcache
         // TODO: dcache
         // TODO: dcache
-        let inode = mount.fs.inner.open(subpath)?;
+        let inode = match mount.fs.inner.open(subpath) {
+            Ok(inode) => inode,
+            // TODO errno
+            Err(err) => return Err(FsStatError::BadPath(FsPathError::Placeholder)),
+        };
+
         mount.fs.inner.stat(inode, stat_buf)?;
-        mount.fs.inner.close(inode)
+        mount.fs.inner.close(inode).unwrap();
+        Ok(())
     }
 }
 
@@ -454,17 +465,17 @@ fn parse_path(path: &str) -> Option<Vec<String>> {
     Some(path)
 }
 
-pub fn mount_special(path: &str, filesystem: FileSystem) -> Result<(), FileSystemError> {
+pub fn mount_special(path: &str, filesystem: FileSystem) -> Result<(), FsMountError> {
     let mut vfs = VFS.write();
     vfs.mount_special(path, filesystem)
 }
 
-pub fn mount(path: &str, part: Weak<Partition>, fs_name: &str) -> Result<(), FileSystemError> {
+pub fn mount(path: &str, part: Weak<Partition>, fs_name: &str) -> Result<(), FsMountError> {
     let mut vfs = VFS.write();
     vfs.mount(path, part, fs_name)
 }
 
-pub fn open(path: &str, flags: FileOpenFlags) -> Result<Box<FileDescriptor>, FileSystemError> {
+pub fn open(path: &str, flags: FileOpenFlags) -> Result<Box<FileDescriptor>, FsOpenError> {
     let node = {
         let mut vfs = VFS.write();
         match vfs.open(path, flags) {
@@ -476,14 +487,12 @@ pub fn open(path: &str, flags: FileOpenFlags) -> Result<Box<FileDescriptor>, Fil
     Ok(node)
 }
 
-pub fn stat(path: &str, stat_buf: &mut Stat) -> Result<(), FileSystemError> {
+pub fn stat(path: &str, stat_buf: &mut Stat) -> Result<(), FsStatError> {
     let mut vfs = VFS.write();
     vfs.stat(path, stat_buf)
 }
 
-pub fn register_fs_skeleton(skel: FileSystemSkeleton) -> Result<(), FileSystemError> {
+pub fn register_fs_skeleton(skel: FileSystemSkeleton) -> Result<(), ()> {
     let mut vfs = VFS.write();
     vfs.register_fs_skeleton(skel)
 }
-
-pub fn init() {}

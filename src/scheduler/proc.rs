@@ -360,8 +360,9 @@ impl Process {
 
         let mem_size = header.p_memsz as usize;
 
-        let seg_page_start = VirtAddr::new(virt_addr_start.get() - virt_addr_start.page_offset());
-        let pages = mem_size.div_ceil(PAGE_SIZE_4KIB as usize);
+        let page_offset = virt_addr_start.page_offset();
+        let seg_page_start = VirtAddr::new(virt_addr_start.get() - page_offset);
+        let pages = (mem_size + page_offset as usize).div_ceil(PAGE_SIZE_4KIB as usize);
         self.add_region(seg_page_start.get() as usize, pages, flags)
             .unwrap();
 
@@ -440,7 +441,7 @@ impl Process {
         // and instead later reading the file to userspace
         // TODO: don't unnecessarily zero the memory
         let mut buff: Box<[u8]> = vec![0; file_size].into_boxed_slice();
-        match fd.read(file_size, &mut buff[..]) {
+        match fd.read(&mut buff[..]) {
             Ok(_) => {}
             Err(err) => panic!("{:?}", err),
         };

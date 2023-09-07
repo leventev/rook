@@ -7,7 +7,10 @@ use spin::Mutex;
 use crate::{
     arch::x86_64::disable_interrupts,
     mm::VirtAddr,
-    posix::{errno, Timeval},
+    posix::{
+        errno::{self, Errno},
+        Timeval,
+    },
     scheduler::{
         self,
         proc::{get_process, Process},
@@ -45,27 +48,6 @@ pub struct CloneArgs {
     pub cgroup: u64,
 }
 
-#[derive(Debug, Clone, Copy)]
-enum SyscallProcError {
-    InvalidPID,
-    NotFoundPID,
-    InvalidRequest,
-    BuffTooSmall,
-}
-
-impl SyscallProcError {
-    fn as_errno(&self) -> u64 {
-        let val = match self {
-            Self::InvalidPID => errno::EINVAL,
-            Self::NotFoundPID => errno::ESRCH,
-            Self::InvalidRequest => errno::EINVAL,
-            Self::BuffTooSmall => errno::ERANGE,
-        };
-
-        (-val) as u64
-    }
-}
-
 pub fn sys_getpid(proc: Arc<Mutex<Process>>, _args: [u64; 6]) -> u64 {
     proc.lock().pid as u64
 }
@@ -96,17 +78,17 @@ pub fn sys_getcwd(proc: Arc<Mutex<Process>>, args: [u64; 6]) -> u64 {
 
     match getcwd(proc, buff) {
         Ok(_) => 0,
-        Err(err) => err.as_errno(),
+        Err(err) => err.into_inner_result() as u64,
     }
 }
 
-fn getcwd(proc: Arc<Mutex<Process>>, buff: &mut [u8]) -> Result<(), SyscallProcError> {
+fn getcwd(proc: Arc<Mutex<Process>>, buff: &mut [u8]) -> Result<(), Errno> {
     let p = proc.lock();
     let vnode = &p.cwd.lock().vnode;
     let vnode_path = vnode.path();
 
     if vnode_path.len() > buff.len() {
-        return Err(SyscallProcError::BuffTooSmall);
+        todo!()
     }
 
     let buff = &mut buff[..vnode_path.len() + 1];
@@ -121,13 +103,13 @@ pub fn sys_getpgid(proc: Arc<Mutex<Process>>, args: [u64; 6]) -> u64 {
 
     match getpgid(proc, pid) {
         Ok(gpid) => gpid as u64,
-        Err(err) => err.as_errno(),
+        Err(err) => err.into_inner_result() as u64,
     }
 }
 
-fn getpgid(proc: Arc<Mutex<Process>>, pid: isize) -> Result<usize, SyscallProcError> {
+fn getpgid(proc: Arc<Mutex<Process>>, pid: isize) -> Result<usize, Errno> {
     if pid < 0 {
-        return Err(SyscallProcError::InvalidPID);
+        todo!()
     }
 
     if pid == 0 {
@@ -136,7 +118,7 @@ fn getpgid(proc: Arc<Mutex<Process>>, pid: isize) -> Result<usize, SyscallProcEr
 
     match scheduler::proc::get_process(pid as usize) {
         Some(proc) => Ok(proc.lock().pgid),
-        None => Err(SyscallProcError::NotFoundPID),
+        None => todo!(),
     }
 }
 
@@ -146,18 +128,18 @@ pub fn sys_setpgid(proc: Arc<Mutex<Process>>, args: [u64; 6]) -> u64 {
 
     match setpgid(proc, pid, pgid) {
         Ok(_) => 0,
-        Err(err) => err.as_errno(),
+        Err(err) => err.into_inner_result() as u64,
     }
 }
 
-fn setpgid(proc: Arc<Mutex<Process>>, pid: usize, pgid: usize) -> Result<(), SyscallProcError> {
+fn setpgid(proc: Arc<Mutex<Process>>, pid: usize, pgid: usize) -> Result<(), Errno> {
     // TODO: session leader checks, etc...
     let p = if pid == 0 {
         proc
     } else {
         match get_process(pid) {
             Some(p) => p,
-            None => return Err(SyscallProcError::InvalidPID),
+            None => todo!(),
         }
     };
 
@@ -175,7 +157,7 @@ pub fn sys_clone(proc: Arc<Mutex<Process>>, args: [u64; 6]) -> u64 {
 
     match clone(proc, clone_args, size) {
         Ok(pid) => pid as u64,
-        Err(err) => err.as_errno(),
+        Err(err) => err.into_inner_result() as u64,
     }
 }
 
@@ -183,7 +165,7 @@ fn clone(
     proc: Arc<Mutex<Process>>,
     clone_args: *const CloneArgs,
     _size: usize,
-) -> Result<usize, SyscallProcError> {
+) -> Result<usize, Errno> {
     // TODO: check if sizeof(clone_args) == size???
     // TODO: validate clone_args
 
@@ -232,7 +214,7 @@ pub fn sys_execve(proc: Arc<Mutex<Process>>, args: [u64; 6]) -> u64 {
 
     match execve(proc, path, argv, envp) {
         Ok(_) => 0,
-        Err(err) => err.as_errno(),
+        Err(err) => err.into_inner_result() as u64,
     }
 }
 
@@ -261,7 +243,7 @@ fn execve(
     path: *const c_char,
     argv: *const *const c_char,
     envp: *const *const c_char,
-) -> Result<(), SyscallProcError> {
+) -> Result<(), Errno> {
     // TODO: errors
     disable_interrupts();
     let mut p = proc.lock();
@@ -306,11 +288,11 @@ pub fn sys_archctl(proc: Arc<Mutex<Process>>, args: [u64; 6]) -> u64 {
 
     match archctl(proc, req, arg) {
         Ok(_) => 0,
-        Err(err) => err.as_errno(),
+        Err(err) => err.into_inner_result() as u64,
     }
 }
 
-fn archctl(proc: Arc<Mutex<Process>>, req: usize, arg: usize) -> Result<(), SyscallProcError> {
+fn archctl(proc: Arc<Mutex<Process>>, req: usize, arg: usize) -> Result<(), Errno> {
     const SET_FS: usize = 0x1000;
 
     let p = proc.lock();
@@ -327,7 +309,7 @@ fn archctl(proc: Arc<Mutex<Process>>, req: usize, arg: usize) -> Result<(), Sysc
             }
             Ok(())
         }
-        _ => Err(SyscallProcError::InvalidRequest),
+        _ => todo!(),
     }
 }
 
@@ -337,11 +319,11 @@ pub fn sys_gettimeofday(proc: Arc<Mutex<Process>>, args: [u64; 6]) -> u64 {
 
     match gettimeofday(proc, tv) {
         Ok(_) => 0,
-        Err(err) => err.as_errno(),
+        Err(err) => err.into_inner_result() as u64,
     }
 }
 
-fn gettimeofday(_proc: Arc<Mutex<Process>>, tv: &mut Timeval) -> Result<(), SyscallProcError> {
+fn gettimeofday(_proc: Arc<Mutex<Process>>, tv: &mut Timeval) -> Result<(), Errno> {
     let time = time::elapsed();
 
     tv.tv_sec = time.seconds;

@@ -7,7 +7,10 @@ use crate::{
         keyboard::{KeyEvent, PS2KeyboardEventHandler, PS2_KEY_BACKSPACE},
     },
     framebuffer,
-    fs::devfs::{self, DevFsDevice},
+    fs::{
+        devfs::{self, DevFsDevice},
+        FsIoctlError, FsReadError, FsStatError, FsWriteError,
+    },
     posix::{
         termios::{
             Termios, Winsize, ECHO, ICANON, ISIG, NCCS, TCGETS, TCSETS, TIOCGPGRP, TIOCGWINSZ,
@@ -155,13 +158,7 @@ impl ConsoleState {
 }
 
 impl DevFsDevice for Console {
-    fn read(
-        &self,
-        _minor: u16,
-        _offset: usize,
-        buff: &mut [u8],
-        size: usize,
-    ) -> Result<usize, crate::fs::FileSystemError> {
+    fn read(&self, _minor: u16, _off: usize, buff: &mut [u8]) -> Result<usize, FsReadError> {
         loop {
             let buffer = self.stdin_buffer.lock();
             if !buffer.buffer.is_empty() {
@@ -171,20 +168,14 @@ impl DevFsDevice for Console {
 
         // FIXME: interrupt locking because an keyboard interrupt could cause a deadlock here
         let mut stdin_buffer = self.stdin_buffer.lock();
-        let bytes_to_read = usize::min(size, stdin_buffer.buffer.len());
+        let bytes_to_read = usize::min(buff.len(), stdin_buffer.buffer.len());
 
         stdin_buffer.move_to_other_buffer(bytes_to_read, buff);
 
         Ok(bytes_to_read)
     }
 
-    fn write(
-        &self,
-        _minor: u16,
-        _offset: usize,
-        buff: &[u8],
-        _size: usize,
-    ) -> Result<usize, crate::fs::FileSystemError> {
+    fn write(&self, _minor: u16, _off: usize, buff: &[u8]) -> Result<usize, FsWriteError> {
         let mut terminal = self.terminal.lock();
         for &ch in buff {
             terminal.write_char(ch);
@@ -193,12 +184,7 @@ impl DevFsDevice for Console {
         Ok(buff.len())
     }
 
-    fn ioctl(
-        &self,
-        _minor: u16,
-        req: usize,
-        arg: usize,
-    ) -> Result<usize, crate::fs::FileSystemError> {
+    fn ioctl(&self, _minor: u16, req: usize, arg: usize) -> Result<usize, FsIoctlError> {
         let mut state = self.state.lock();
         match req {
             TCGETS => {
@@ -243,11 +229,7 @@ impl DevFsDevice for Console {
         Ok(0)
     }
 
-    fn stat(
-        &self,
-        _minor: u16,
-        stat_buf: &mut crate::posix::Stat,
-    ) -> Result<(), crate::fs::FileSystemError> {
+    fn stat(&self, _minor: u16, stat_buf: &mut crate::posix::Stat) -> Result<(), FsStatError> {
         // TODO
         stat_buf.st_blksize = 4096;
         stat_buf.st_blocks = 0;

@@ -130,7 +130,6 @@ pub extern "C" fn excp_page_fault(error_code: u64) {
     let mut page_flags = match pml4.get_page_entry_from_virt(addr) {
         Some((_, page_flags)) => page_flags,
         None => {
-            error!("FS BASE: {}", x86_64::get_fs_base());
             error!("{}", unsafe { EXCEPTION_REG_STATE });
             panic!("PAGE FAULT virt: {} flags: {:?}", addr, page_fault_flags)
         }

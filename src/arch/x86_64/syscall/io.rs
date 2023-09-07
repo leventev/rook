@@ -4,47 +4,14 @@ use alloc::{slice, sync::Arc};
 use spin::Mutex;
 
 use crate::{
-    fs::{self, FileSystemError, SeekWhence},
+    fs::{self, SeekWhence},
     posix::{
-        errno, FileOpenFlags, FileOpenMode, Stat, F_DUPFD, F_DUPFD_CLOEXEC, F_GETFD, F_GETFL,
-        F_SETFD, F_SETFL,
+        errno::{Errno, EBADF},
+        FileOpenFlags, FileOpenMode, Stat, F_DUPFD, F_DUPFD_CLOEXEC, F_GETFD, F_GETFL, F_SETFD,
+        F_SETFL,
     },
     scheduler::proc::Process,
 };
-
-#[derive(Debug, Clone, Copy)]
-enum SyscallIOError {
-    InvalidFD,
-    InvalidPath,
-    InvalidWhence,
-    InvalidCommand,
-    NotSeekable,
-}
-
-impl SyscallIOError {
-    fn as_errno(&self) -> u64 {
-        let val = match self {
-            SyscallIOError::InvalidFD => errno::EBADF,
-            // TODO: dirname error
-            SyscallIOError::InvalidPath
-            | SyscallIOError::InvalidWhence
-            | SyscallIOError::InvalidCommand => errno::EINVAL,
-            SyscallIOError::NotSeekable => errno::ESPIPE,
-        };
-
-        (-val) as u64
-    }
-}
-
-impl FileSystemError {
-    fn as_syscall_io_error(&self) -> SyscallIOError {
-        match self {
-            FileSystemError::FileNotFound => SyscallIOError::InvalidPath,
-            FileSystemError::NotSeekable => SyscallIOError::NotSeekable,
-            _ => unreachable!(),
-        }
-    }
-}
 
 pub fn sys_write(proc: Arc<Mutex<Process>>, args: [u64; 6]) -> u64 {
     let fd = args[0] as usize;
@@ -53,27 +20,18 @@ pub fn sys_write(proc: Arc<Mutex<Process>>, args: [u64; 6]) -> u64 {
 
     match write(proc, fd, len, buff) {
         Ok(n) => n as u64,
-        Err(err) => err.as_errno(),
+        Err(err) => err.into_inner_result() as u64,
     }
 }
 
-fn write(
-    proc: Arc<Mutex<Process>>,
-    fd: usize,
-    len: usize,
-    buff: &[u8],
-) -> Result<usize, SyscallIOError> {
+fn write(proc: Arc<Mutex<Process>>, fd: usize, len: usize, buff: &[u8]) -> Result<usize, Errno> {
     let p = proc.lock();
-    let file_lock = match p.get_fd(fd) {
-        Some(f) => f,
-        None => return Err(SyscallIOError::InvalidFD),
-    };
+    let file_lock = p.get_fd(fd).ok_or(EBADF)?;
 
     let mut file_desc = file_lock.lock();
-    match file_desc.write(len, buff) {
-        Ok(written) => Ok(written),
-        Err(err) => Err(err.as_syscall_io_error()),
-    }
+    file_desc.write(buff).map_err(|err| match err {
+        _ => todo!(),
+    })
 }
 
 pub fn sys_read(proc: Arc<Mutex<Process>>, args: [u64; 6]) -> u64 {
@@ -83,27 +41,18 @@ pub fn sys_read(proc: Arc<Mutex<Process>>, args: [u64; 6]) -> u64 {
 
     match read(proc, fd, len, buff) {
         Ok(n) => n as u64,
-        Err(err) => err.as_errno(),
+        Err(err) => err.into_inner_result() as u64,
     }
 }
 
-fn read(
-    proc: Arc<Mutex<Process>>,
-    fd: usize,
-    len: usize,
-    buff: &mut [u8],
-) -> Result<usize, SyscallIOError> {
+fn read(proc: Arc<Mutex<Process>>, fd: usize, len: usize, buff: &mut [u8]) -> Result<usize, Errno> {
     let p = proc.lock();
-    let file_lock = match p.get_fd(fd) {
-        Some(f) => f,
-        None => return Err(SyscallIOError::InvalidFD),
-    };
+    let file_lock = p.get_fd(fd).ok_or(EBADF)?;
 
     let mut file_desc = file_lock.lock();
-    match file_desc.read(len, buff) {
-        Ok(read) => Ok(read),
-        Err(err) => Err(err.as_syscall_io_error()),
-    }
+    file_desc.read(buff).map_err(|err| match err {
+        _ => todo!(),
+    })
 }
 
 pub fn sys_openat(proc: Arc<Mutex<Process>>, args: [u64; 6]) -> u64 {
@@ -114,7 +63,7 @@ pub fn sys_openat(proc: Arc<Mutex<Process>>, args: [u64; 6]) -> u64 {
 
     match openat(proc, dirfd, pathname, flags, mode) {
         Ok(n) => n as u64,
-        Err(err) => err.as_errno(),
+        Err(err) => err.into_inner_result() as u64,
     }
 }
 
@@ -124,7 +73,7 @@ fn openat(
     pathname: *const c_char,
     flags: FileOpenFlags,
     _mode: FileOpenMode,
-) -> Result<usize, SyscallIOError> {
+) -> Result<usize, Errno> {
     // TODO: flags, mode
     let mut p = proc.lock();
 
@@ -133,14 +82,13 @@ fn openat(
     debug!("openat {} {}", dirfd, path);
     let full_path = match p.get_full_path_from_dirfd(dirfd, path) {
         Ok(path) => path,
-        Err(_) => return Err(SyscallIOError::InvalidFD),
+        Err(_) => todo!(),
     };
 
     let file_desc = {
-        let desc = match fs::open(full_path.as_str(), flags) {
-            Ok(desc) => desc,
-            Err(err) => return Err(err.as_syscall_io_error()),
-        };
+        let desc = fs::open(full_path.as_str(), flags).map_err(|err| match err {
+            fs::FsOpenError::BadPath(path) => path.into_errno(),
+        })?;
         Arc::new(Mutex::new(*desc))
     };
 
@@ -153,15 +101,15 @@ pub fn sys_close(proc: Arc<Mutex<Process>>, args: [u64; 6]) -> u64 {
     let fd = args[0] as usize;
     match close(proc, fd) {
         Ok(()) => 0,
-        Err(err) => err.as_errno(),
+        Err(err) => err.into_inner_result() as u64,
     }
 }
 
-fn close(proc: Arc<Mutex<Process>>, fd: usize) -> Result<(), SyscallIOError> {
+fn close(proc: Arc<Mutex<Process>>, fd: usize) -> Result<(), Errno> {
     let mut p = proc.lock();
 
     if p.get_fd(fd).is_none() {
-        return Err(SyscallIOError::InvalidFD);
+        return Err(EBADF);
     }
 
     p.free_fd(fd);
@@ -176,8 +124,8 @@ pub fn sys_fstatat(proc: Arc<Mutex<Process>>, args: [u64; 6]) -> u64 {
     let flag = args[3] as usize;
 
     match fstatat(proc, fd, path, stat_buf, flag) {
-        Ok(ret) => ret,
-        Err(err) => err.as_errno(),
+        Ok(ret) => ret as u64,
+        Err(err) => err.into_inner_result() as u64,
     }
 }
 
@@ -187,7 +135,7 @@ fn fstatat(
     path: *const c_char,
     stat_buf: *mut Stat,
     _flag: usize,
-) -> Result<u64, SyscallIOError> {
+) -> Result<usize, Errno> {
     // TODO: flag
     let p = proc.lock();
 
@@ -196,7 +144,7 @@ fn fstatat(
 
     let full_path = match p.get_full_path_from_dirfd(fd, path) {
         Ok(path) => path,
-        Err(_) => return Err(SyscallIOError::InvalidFD),
+        Err(_) => todo!(),
     };
 
     // TODO: validate struct
@@ -204,7 +152,9 @@ fn fstatat(
 
     match fs::stat(&full_path, stat_buf) {
         Ok(_) => Ok(0),
-        Err(err) => Err(err.as_syscall_io_error()),
+        Err(err) => match err {
+            fs::FsStatError::BadPath(path) => Err(path.into_errno()),
+        },
     }
 }
 
@@ -215,34 +165,20 @@ pub fn sys_fcntl(proc: Arc<Mutex<Process>>, args: [u64; 6]) -> u64 {
 
     match fcntl(proc, fd, cmd, arg) {
         Ok(ret) => ret as u64,
-        Err(err) => err.as_errno(),
+        Err(err) => err.into_inner_result() as u64,
     }
 }
 
-fn fcntl(
-    proc: Arc<Mutex<Process>>,
-    fd: usize,
-    cmd: usize,
-    arg: usize,
-) -> Result<usize, SyscallIOError> {
+fn fcntl(proc: Arc<Mutex<Process>>, fd: usize, cmd: usize, arg: usize) -> Result<usize, Errno> {
     let mut p = proc.lock();
 
-    let node = match p.get_fd(fd) {
-        Some(x) => x,
-        None => return Err(SyscallIOError::InvalidFD),
-    };
+    let node = p.get_fd(fd).ok_or(EBADF)?;
 
     match cmd {
-        F_DUPFD => match p.dup_fd(Some(arg), fd) {
-            Ok(new_fd) => Ok(new_fd),
-            Err(_) => Err(SyscallIOError::InvalidFD),
-        },
+        F_DUPFD => p.dup_fd(Some(arg), fd).or(Err(EBADF)),
         F_DUPFD_CLOEXEC => {
             warn!("F_DUPFD_CLOEXEC cloexec ignored, doing F_DUPFD instead");
-            match p.dup_fd(Some(arg), fd) {
-                Ok(new_fd) => Ok(new_fd),
-                Err(_) => Err(SyscallIOError::InvalidFD),
-            }
+            p.dup_fd(Some(arg), fd).or(Err(EBADF))
         }
         F_GETFD => {
             warn!("fcntl F_GETFD not implemented");
@@ -263,7 +199,7 @@ fn fcntl(
             node.lock().flags = flags;
             Ok(0)
         }
-        _ => Err(SyscallIOError::InvalidCommand),
+        _ => todo!(),
     }
 }
 
@@ -274,27 +210,19 @@ pub fn sys_ioctl(proc: Arc<Mutex<Process>>, args: [u64; 6]) -> u64 {
 
     match ioctl(proc, fd, req, arg) {
         Ok(n) => n as u64,
-        Err(err) => err.as_errno(),
+        Err(err) => err.into_inner_result() as u64,
     }
 }
 
-fn ioctl(
-    proc: Arc<Mutex<Process>>,
-    fd: usize,
-    req: usize,
-    arg: usize,
-) -> Result<usize, SyscallIOError> {
+fn ioctl(proc: Arc<Mutex<Process>>, fd: usize, req: usize, arg: usize) -> Result<usize, Errno> {
     let p = proc.lock();
 
-    let file_lock = match p.get_fd(fd) {
-        Some(f) => f,
-        None => return Err(SyscallIOError::InvalidFD),
-    };
+    let file_lock = p.get_fd(fd).ok_or(EBADF)?;
 
     let file_desc = file_lock.lock();
     match file_desc.ioctl(req, arg) {
         Ok(ret) => Ok(ret),
-        Err(err) => Err(err.as_syscall_io_error()),
+        Err(err) => todo!(),
     }
 }
 
@@ -305,7 +233,7 @@ pub fn sys_lseek(proc: Arc<Mutex<Process>>, args: [u64; 6]) -> u64 {
 
     match lseek(proc, fd, offset, whence) {
         Ok(n) => n as u64,
-        Err(err) => err.as_errno(),
+        Err(err) => err.into_inner_result() as u64,
     }
 }
 
@@ -314,25 +242,22 @@ fn lseek(
     fd: usize,
     offset: usize,
     whence: usize,
-) -> Result<usize, SyscallIOError> {
+) -> Result<usize, Errno> {
     let p = proc.lock();
 
-    let file_lock = match p.get_fd(fd) {
-        Some(f) => f,
-        None => return Err(SyscallIOError::InvalidFD),
-    };
+    let file_lock = p.get_fd(fd).ok_or(EBADF)?;
 
     let whence = match whence {
         0 => SeekWhence::Set,
         1 => SeekWhence::Cur,
         2 => SeekWhence::End,
-        _ => return Err(SyscallIOError::InvalidWhence),
+        _ => todo!(),
     };
 
     let mut file_desc = file_lock.lock();
     match file_desc.lseek(offset, whence) {
         Ok(ret) => Ok(ret),
-        Err(err) => Err(err.as_syscall_io_error()),
+        Err(err) => todo!(),
     }
 }
 
@@ -341,18 +266,18 @@ pub fn sys_chdir(proc: Arc<Mutex<Process>>, args: [u64; 6]) -> u64 {
 
     match chdir(proc, path) {
         Ok(n) => n as u64,
-        Err(err) => err.as_errno(),
+        Err(err) => err.into_inner_result() as u64,
     }
 }
 
-fn chdir(proc: Arc<Mutex<Process>>, path: *const c_char) -> Result<usize, SyscallIOError> {
+fn chdir(proc: Arc<Mutex<Process>>, path: *const c_char) -> Result<usize, Errno> {
     let mut p = proc.lock();
 
     let path = unsafe { CStr::from_ptr(path) }.to_str().unwrap();
     // TODO: proper flags
     let new_cwd = Arc::new(Mutex::new(match fs::open(path, FileOpenFlags::empty()) {
         Ok(fd) => *fd,
-        Err(err) => return Err(err.as_syscall_io_error()),
+        Err(err) => todo!(),
     }));
 
     p.change_cwd(new_cwd);
@@ -368,7 +293,7 @@ pub fn sys_log(proc: Arc<Mutex<Process>>, args: [u64; 6]) -> u64 {
     0
 }
 
-fn log(proc: Arc<Mutex<Process>>, message: *const c_char) -> Result<(), SyscallIOError> {
+fn log(proc: Arc<Mutex<Process>>, message: *const c_char) -> Result<(), Errno> {
     // TODO: check if message is valid
     let message = unsafe { CStr::from_ptr(message) }.to_str().unwrap();
 

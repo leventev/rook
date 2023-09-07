@@ -140,8 +140,6 @@ fn main_init_thread() {
 
     drivers::load_drivers();
 
-    fs::init();
-
     let part = blk::get_partition(1, 0, 0).unwrap();
     fs::mount("/", part, "fat32").unwrap();
 
