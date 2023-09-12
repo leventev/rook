@@ -82,8 +82,8 @@ impl SchedulerThreadData {
             let in_pages = KERNEL_STACK_SIZE_PER_THREAD / FRAME_SIZE as u64;
 
             // leave first page unmapped so a stack overflow causes a pagefault
-            let virt_start = thread_stack_bottom + VirtAddr::new(1 * FRAME_SIZE as u64);
-            let virt_end = virt_start + VirtAddr::new((in_pages - 1) * FRAME_SIZE as u64);
+            let virt_start = thread_stack_bottom + VirtAddr::new(FRAME_SIZE as u64);
+            let virt_end = virt_start + VirtAddr::new(in_pages * FRAME_SIZE as u64);
             let flags = PageFlags::READ_WRITE | PageFlags::PRESENT;
             pml4.map_range(virt_start, virt_end, flags);
         }

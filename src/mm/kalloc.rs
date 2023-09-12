@@ -66,7 +66,7 @@ impl KernelAllocatorInner {
             size *= 2;
         }
 
-        let newly_allocated_size = size - self.current_size; 
+        let newly_allocated_size = size - self.current_size;
 
         let start_virt = self.heap_end();
         let end_virt = self.heap_end() + VirtAddr::new(newly_allocated_size as u64);

@@ -139,19 +139,11 @@ impl Process {
 
     // TODO: arch specific
     fn map_region(&self, region: &MappedRegion) {
-        debug!("map region before");
-        /*let addr_base = region.start as u64;
+        let virt_start = VirtAddr::new(region.start as u64);
+        let virt_end = virt_start + VirtAddr::new(region.pages as u64 * PAGE_SIZE_4KIB);
         let flags = region.page_flags();
-        for i in 0..region.pages {
-            let virt = VirtAddr::new(addr_base + i as u64 * PAGE_SIZE_4KIB);
-            let phys = if region.flags.contains(MappedRegionFlags::ALLOC_ON_ACCESS) {
-                PhysAddr::zero()
-            } else {
-                phys::alloc()
-            };
 
-            self.pml4.map_4kib_single(virt, phys, flags);
-        }*/
+        self.pml4.map_range(virt_start, virt_end, flags);
 
         debug!("map region after");
     }

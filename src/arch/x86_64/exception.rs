@@ -123,7 +123,11 @@ pub extern "C" fn excp_general_protection_fault(error_code: u64) -> ! {
 pub extern "C" fn excp_page_fault(error_code: u64) {
     let pml4 = get_current_pml4();
 
-    let page_fault_flags = unsafe { PageFaultFlags::from_bits_unchecked(error_code as u32) };
+    let page_fault_flags = PageFaultFlags::from_bits(error_code as u32).unwrap();
+
+    if page_fault_flags.contains(PageFaultFlags::RESERVED_WRITE) {
+        panic!("invalid page table entry")
+    }
 
     let addr = VirtAddr::new(get_cr2());
 
@@ -140,7 +144,7 @@ pub extern "C" fn excp_page_fault(error_code: u64) {
         let end_virt = start_virt + VirtAddr::new(PAGE_SIZE_4KIB);
         page_flags.remove(PageFlags::ALLOC_ON_ACCESS);
         page_flags.insert(PageFlags::PRESENT);
-        
+
         pml4.map_range(start_virt, end_virt, page_flags);
         return;
     }

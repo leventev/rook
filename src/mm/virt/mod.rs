@@ -164,6 +164,10 @@ impl PML4 {
         assert!(from.page_offset() == 0);
         assert!(to.page_offset() == 0);
 
+        assert!(from.get() < to.get());
+
+        let alloc_pages = !flags.contains(PageFlags::ALLOC_ON_ACCESS);
+
         let mut pgm = PAGE_DESCRIPTOR_MANAGER.lock();
         let mut phys_allocator = PHYS_ALLOCATOR.lock();
 
@@ -185,7 +189,7 @@ impl PML4 {
             let pml3_end = if pml4_idx == pml4_end {
                 to.pml3_index()
             } else {
-                PAGE_ENTRIES as u64 - 1
+                PAGE_ENTRIES as u64
             };
 
             for pml3_idx in pml3_start..=pml3_end {
@@ -201,7 +205,7 @@ impl PML4 {
                 let pml2_end = if pml3_idx == pml3_end {
                     to.pml2_index()
                 } else {
-                    PAGE_ENTRIES as u64 - 1
+                    PAGE_ENTRIES as u64
                 };
 
                 for pml2_idx in pml2_start..=pml2_end {
@@ -217,18 +221,44 @@ impl PML4 {
                     let pml1_end = if pml2_idx == pml2_end {
                         to.pml1_index()
                     } else {
-                        PAGE_ENTRIES as u64 - 1
+                        PAGE_ENTRIES as u64
                     };
 
-                    let pages = pml1_end - pml1_start + 1;
-                    let phys_start = phys_allocator.alloc_multiple(pages as usize, 0x1000);
-                    for pml1_idx in pml1_start..=pml1_end {
-                        let rel_idx = pml1_idx - pml1_start;
-                        let phys = phys_start + PhysAddr::new(rel_idx * 4096);
-                        self.map_pml1(&mut pgm, pml1, pml1_idx, phys, flags.to_plm1_flags());
+                    if pml1_end == 0 {
+                        return;
+                    }
 
-                        flush_tlb_page(current_addr.get());
-                        current_addr = VirtAddr::new(current_addr.get() + 0x1000);
+                    if alloc_pages {
+                        // FIXME: theres a bug in the physical allocator when allocating multiple frames
+                        // FIXME: ^^^^ im too lazy to fix it for now
+                        //let pages = pml1_end - pml1_start + 1;
+                        //let phys_start = phys_allocator.alloc_multiple(pages as usize, 0x1000);
+                        for pml1_idx in pml1_start..pml1_end {
+                            assert!(pml4_idx == current_addr.pml4_index());
+                            assert!(pml3_idx == current_addr.pml3_index());
+                            assert!(pml2_idx == current_addr.pml2_index());
+                            assert!(pml1_idx == current_addr.pml1_index());
+
+                            //let rel_idx = pml1_idx - pml1_start;
+                            let phys = phys_allocator.alloc_single(); //phys_start + PhysAddr::new(rel_idx * 4096);
+
+                            self.map_pml1(&mut pgm, pml1, pml1_idx, phys, flags.to_plm1_flags());
+
+                            flush_tlb_page(current_addr.get());
+                            current_addr = current_addr + VirtAddr::new(0x1000);
+                        }
+                    } else {
+                        for pml1_idx in pml1_start..pml1_end {
+                            self.map_pml1(
+                                &mut pgm,
+                                pml1,
+                                pml1_idx,
+                                PhysAddr::zero(),
+                                flags.to_plm1_flags(),
+                            );
+                            flush_tlb_page(current_addr.get());
+                            current_addr = current_addr + VirtAddr::new(0x1000);
+                        }
                     }
                 }
             }
