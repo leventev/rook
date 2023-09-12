@@ -11,13 +11,13 @@ pub enum FsPathError {
     ParseError(PathParseError),
 }
 
-impl FsPathError {
-    pub fn into_errno(self) -> Errno {
+impl Into<Errno> for FsPathError {
+    fn into(self) -> Errno {
         match self {
             FsPathError::NoSuchFileOrDirectory => ENOENT,
             FsPathError::NotADirectory => ENOTDIR,
             FsPathError::PermissionDenied => EACCES,
-            FsPathError::ParseError(err) => err.as_errno(),
+            FsPathError::ParseError(err) => err.into(),
         }
     }
 }

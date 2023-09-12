@@ -96,7 +96,7 @@ impl Framebuffer {
 
         buff[y_off + x_off + 2] = red;
         buff[y_off + x_off + 1] = green;
-        buff[y_off + x_off + 0] = blue;
+        buff[y_off + x_off] = blue;
     }
 
     fn draw_glyph(&self, glyph_idx: usize, x: usize, y: usize, clear_background: bool) {
@@ -110,9 +110,7 @@ impl Framebuffer {
             let row_offset_end = row_offset + self.font_pixel_row_size;
             let row = &bitmap[row_offset..row_offset_end];
 
-            for col_byte in 0..self.font_pixel_row_size {
-                let byte = row[col_byte];
-
+            for (col_byte, byte) in row.iter().enumerate().take(self.font_pixel_row_size) {
                 let remaining_bits = self.font_height - col_byte * 8;
                 let cols = usize::min(8, remaining_bits);
 

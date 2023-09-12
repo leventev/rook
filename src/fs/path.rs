@@ -9,8 +9,8 @@ pub enum PathParseError {
     PathTooLong,
 }
 
-impl PathParseError {
-    pub fn as_errno(self) -> Errno {
+impl Into<Errno> for PathParseError {
+    fn into(self) -> Errno {
         match self {
             PathParseError::PathComponentTooLong | PathParseError::PathTooLong => ENAMETOOLONG,
         }

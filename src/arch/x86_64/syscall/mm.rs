@@ -12,7 +12,7 @@ pub fn sys_mmap(proc: Arc<Mutex<Process>>, args: [u64; 6]) -> u64 {
     let prot = args[2] as u32;
     let flags = args[3] as u32;
     let fd = args[4] as isize;
-    let off = args[5] as u64;
+    let off = args[5];
 
     match mmap(proc, addr, len, prot, flags, fd, off) {
         Ok(n) => n,

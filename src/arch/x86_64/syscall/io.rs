@@ -89,7 +89,7 @@ fn openat(
         let desc = vfs
             .open(full_path.as_str(), flags)
             .map_err(|err| match err {
-                FsOpenError::BadPath(path) => path.into_errno(),
+                FsOpenError::BadPath(path) => path.into(),
             })?;
         Arc::new(Mutex::new(*desc))
     };
@@ -156,7 +156,7 @@ fn fstatat(
     match vfs.stat(&full_path, stat_buf) {
         Ok(_) => Ok(0),
         Err(err) => match err {
-            FsStatError::BadPath(path) => Err(path.into_errno()),
+            FsStatError::BadPath(path) => Err(path.into()),
         },
     }
 }

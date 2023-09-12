@@ -596,10 +596,6 @@ impl FileSystemInner for FATFileSystem {
         let mut total_read = 0;
         let mut start_off = offset % BLOCK_SIZE;
 
-        let mut sector_buff: [u8; BLOCK_SIZE] = unsafe {
-            transmute(MaybeUninit::<[MaybeUninit<u8>; BLOCK_SIZE]>::uninit().assume_init())
-        };
-
         while size_left > 0 && buff_left > 0 {
             assert!(cluster.valid_cluster());
 
@@ -614,18 +610,24 @@ impl FileSystemInner for FATFileSystem {
 
             let sub_buff = &mut buff[total_read..total_read + read];
 
-            let res = part.read(IORequest {
-                lba: self.cluster_start_lba(cluster),
-                buff: &mut sector_buff[..],
-                size: 1,
-            });
-            if res.is_err() {
-                todo!()
-            }
+            if read == BLOCK_SIZE {
+                part.read(IORequest {
+                    lba: self.cluster_start_lba(cluster),
+                    buff: &mut sub_buff[..],
+                    size: 1,
+                }).unwrap();
+            } else {
+                let mut sector_buff: [u8; BLOCK_SIZE] = unsafe {
+                    transmute(MaybeUninit::<[MaybeUninit<u8>; BLOCK_SIZE]>::uninit().assume_init())
+                };
 
-            // TODO: optimize
-            for i in 0..read {
-                sub_buff[i] = sector_buff[i];
+                part.read(IORequest {
+                    lba: self.cluster_start_lba(cluster),
+                    buff: &mut sector_buff[..],
+                    size: 1,
+                }).unwrap();
+
+                sub_buff.copy_from_slice(&sector_buff[..read]);
             }
 
             total_read += read;
