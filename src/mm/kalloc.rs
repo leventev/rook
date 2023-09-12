@@ -7,7 +7,6 @@ use crate::{
 };
 
 use super::{
-    phys,
     virt::{KERNEL_HEAP_START, PML4},
     VirtAddr,
 };
@@ -62,19 +61,20 @@ impl KernelAllocatorInner {
     fn extend_heap(&mut self, min_size: usize) -> usize {
         let pml4 = get_current_pml4();
 
-        let mut size = KERNEL_HEAP_BASE_SIZE;
+        let mut size = self.current_size;
         while size < min_size {
             size *= 2;
         }
 
-        let pages = size / 4096;
-        for i in 0..pages {
-            let virt = self.heap_end() + VirtAddr(i as u64 * 4096);
-            let phys = phys::alloc();
-            pml4.map_4kib(virt, phys, PageFlags::READ_WRITE | PageFlags::PRESENT);
-        }
+        let newly_allocated_size = size - self.current_size; 
 
-        size
+        let start_virt = self.heap_end();
+        let end_virt = self.heap_end() + VirtAddr::new(newly_allocated_size as u64);
+        let flags = PageFlags::READ_WRITE | PageFlags::PRESENT;
+
+        pml4.map_range(start_virt, end_virt, flags);
+
+        newly_allocated_size
     }
 
     ///
@@ -181,12 +181,11 @@ impl KernelAllocatorInner {
         self.initialized = true;
         self.current_size = KERNEL_HEAP_BASE_SIZE;
 
-        let pages = self.current_size / 4096;
-        for i in 0..pages {
-            let virt = KERNEL_HEAP_START + VirtAddr(i as u64 * 4096);
-            let phys = phys::alloc();
-            pml4.map_4kib(virt, phys, PageFlags::READ_WRITE | PageFlags::PRESENT);
-        }
+        let start_virt = KERNEL_HEAP_START;
+        let end_virt = KERNEL_HEAP_START + VirtAddr::new(self.current_size as u64);
+        let flags = PageFlags::READ_WRITE | PageFlags::PRESENT;
+
+        pml4.map_range(start_virt, end_virt, flags);
 
         let head = KernelAllocatorInner::head();
         head.allocated = false;

@@ -1,22 +1,23 @@
+use core::{alloc::Layout, slice};
+
 use crate::{
     arch::x86_64::{
-        disable_interrupts, enable_interrupts, get_current_pml4,
+        enable_interrupts, get_current_pml4,
         paging::PageFlags,
         syscall::proc::{CloneArgs, CloneFlags},
     },
     fs::{fd::FileDescriptor, VFS},
     mm::{
-        phys,
+        phys::PHYS_ALLOCATOR,
         virt::{switch_pml4, PAGE_SIZE_4KIB, PML4},
-        PhysAddr, VirtAddr,
+        VirtAddr,
     },
     posix::{FileOpenFlags, Stat, AT_FCWD},
     scheduler::{ThreadInner, SCHEDULER},
     utils::slot_allocator::SlotAllocator,
 };
+
 use alloc::{
-    boxed::Box,
-    slice,
     string::String,
     sync::{Arc, Weak},
     vec::Vec,
@@ -109,7 +110,7 @@ impl Process {
         assert!(processes.allocated_slots() == 0);
 
         let current_pml4 = get_current_pml4();
-        let new_pml4 = phys::alloc();
+        let new_pml4 = PHYS_ALLOCATOR.lock().alloc_single();
         current_pml4.copy_pml4_higher_half_entries(new_pml4);
 
         let new_pml4 = PML4::from_phys(new_pml4);
@@ -138,7 +139,8 @@ impl Process {
 
     // TODO: arch specific
     fn map_region(&self, region: &MappedRegion) {
-        let addr_base = region.start as u64;
+        debug!("map region before");
+        /*let addr_base = region.start as u64;
         let flags = region.page_flags();
         for i in 0..region.pages {
             let virt = VirtAddr::new(addr_base + i as u64 * PAGE_SIZE_4KIB);
@@ -148,8 +150,10 @@ impl Process {
                 phys::alloc()
             };
 
-            self.pml4.map_4kib(virt, phys, flags);
-        }
+            self.pml4.map_4kib_single(virt, phys, flags);
+        }*/
+
+        debug!("map region after");
     }
 
     fn clear_file_descriptors(&mut self) {
@@ -291,7 +295,7 @@ impl Process {
         let pml4 = if clone_flags.contains(CloneFlags::CLONE_VM) {
             self.pml4.clone()
         } else {
-            let new_pml4 = phys::alloc();
+            let new_pml4 = PHYS_ALLOCATOR.lock().alloc_single();
             self.pml4.copy_page_tables(new_pml4);
             PML4::from_phys(new_pml4)
         };
@@ -415,22 +419,7 @@ impl Process {
         Ok(())
     }
 
-    pub fn load_from_file(
-        &mut self,
-        exec_path: &str,
-        args: &[&str],
-        envvars: &[&str],
-    ) -> Result<(), ()> {
-        // TODO: shorten this function
-        let current_pml4 = get_current_pml4();
-        let new_pml4 = phys::alloc();
-        current_pml4.copy_pml4_higher_half_entries(new_pml4);
-        self.pml4 = PML4::from_phys(new_pml4);
-        // TODO: cleanup pml4 from fork
-
-        self.mapped_regions.clear();
-
-        // TODO: proper flags
+    fn load_file_contents(&mut self, exec_path: &str) -> Result<u64, ()> {
         let mut vfs = VFS.write();
         let mut fd = vfs.open(exec_path, FileOpenFlags::empty()).unwrap();
 
@@ -441,20 +430,53 @@ impl Process {
 
         // TODO: perhaps we can parse the ELF header without reading the whole file
         // and instead later reading the file to userspace
-        // TODO: don't unnecessarily zero the memory
-        let mut buff: Box<[u8]> = vec![0; file_size].into_boxed_slice();
-        match fd.read(&mut buff[..]) {
-            Ok(_) => {}
-            Err(err) => panic!("{:?}", err),
+        let layout = Layout::from_size_align(file_size, 8).unwrap();
+        let ptr = unsafe { alloc::alloc::alloc(layout) };
+
+        let entry_point = {
+            let buff = unsafe { slice::from_raw_parts_mut(ptr, file_size) };
+
+            match fd.read(&mut buff[..]) {
+                Ok(_) => {}
+                Err(err) => panic!("{:?}", err),
+            };
+
+            let elf_file = match ElfBytes::<LittleEndian>::minimal_parse(&buff[..]) {
+                Ok(file) => file,
+                Err(_) => {
+                    unsafe { alloc::alloc::dealloc(ptr, layout) };
+                    return Err(());
+                }
+            };
+
+            switch_pml4(&self.pml4);
+            self.load_segments(&buff, &elf_file).unwrap();
+
+            elf_file.ehdr.e_entry
         };
 
-        let elf_file = match ElfBytes::<LittleEndian>::minimal_parse(&buff[..]) {
-            Ok(file) => file,
-            Err(_) => return Err(()),
-        };
+        unsafe { alloc::alloc::dealloc(ptr, layout) };
+        Ok(entry_point)
+    }
 
-        switch_pml4(&self.pml4);
-        self.load_segments(&buff, &elf_file).unwrap();
+    pub fn load_from_file(
+        &mut self,
+        exec_path: &str,
+        args: &[&str],
+        envvars: &[&str],
+    ) -> Result<(), ()> {
+        // TODO: shorten this function
+        let current_pml4 = get_current_pml4();
+        let new_pml4 = PHYS_ALLOCATOR.lock().alloc_single();
+        current_pml4.copy_pml4_higher_half_entries(new_pml4);
+        self.pml4 = PML4::from_phys(new_pml4);
+        // TODO: cleanup pml4 from fork
+
+        self.mapped_regions.clear();
+
+        let entry_point = self.load_file_contents(exec_path)?;
+
+        // TODO: proper flags
 
         const STACK_BASE: u64 = 0xfffffd8000000000;
         const STACK_SIZE_IN_PAGES: u64 = 16; // 64 KiB
@@ -504,7 +526,7 @@ impl Process {
             data.user_regs.general.rdx = envp;
 
             // TODO: validate
-            data.user_regs.rip = elf_file.ehdr.e_entry;
+            data.user_regs.rip = entry_point;
             data.user_regs.rsp = stack_top;
 
             data.pid = self.pid;
@@ -601,8 +623,6 @@ unsafe fn write_argv_envp(stack_bottom: u64, args: &[&str], envvars: &[&str]) ->
 }
 
 pub fn load_base_process(exec_path: &str) {
-    disable_interrupts();
-
     let main_thread_id: ThreadID;
 
     {

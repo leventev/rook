@@ -3,10 +3,9 @@ use alloc::slice;
 use crate::{
     arch::x86_64::paging::{PML1Flags, PML2Flags, PML3Flags, PML4Flags},
     mm::{
-        phys::{self, PageDescriptorManager, FRAME_SIZE},
+        phys::{PageDescriptorManager, PhysAllocator, FRAME_SIZE},
         PhysAddr,
     },
-    utils,
 };
 
 use super::{PAGE_ENTRIES, PML4};
@@ -80,6 +79,7 @@ macro_rules! define_get_or_map_pml {
         pub fn $name(
             &self,
             pgm: &mut PageDescriptorManager,
+            phys_allocator: &mut PhysAllocator,
             table_phys: PhysAddr,
             index: u64,
             flags: $fl,
@@ -90,8 +90,7 @@ macro_rules! define_get_or_map_pml {
                     ent.0
                 }
                 None => {
-                    let phys = phys::alloc();
-                    utils::zero_page(phys.virt_addr().get() as *mut u64);
+                    let phys = phys_allocator.alloc_single();
                     self.$map(pgm, table_phys, index, phys, flags);
                     phys
                 }

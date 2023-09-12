@@ -136,11 +136,12 @@ pub extern "C" fn excp_page_fault(error_code: u64) {
     };
 
     if page_flags.contains(PageFlags::ALLOC_ON_ACCESS) {
-        let page_virt = addr - VirtAddr::new(addr.get() % PAGE_SIZE_4KIB);
-        let page_phys = phys::alloc();
+        let start_virt = addr - VirtAddr::new(addr.get() % PAGE_SIZE_4KIB);
+        let end_virt = start_virt + VirtAddr::new(PAGE_SIZE_4KIB);
         page_flags.remove(PageFlags::ALLOC_ON_ACCESS);
         page_flags.insert(PageFlags::PRESENT);
-        pml4.map_4kib(page_virt, page_phys, page_flags);
+        
+        pml4.map_range(start_virt, end_virt, page_flags);
         return;
     }
 

@@ -1,6 +1,6 @@
 use crate::arch::x86_64::paging::{PML1Flags, PML2Flags, PML3Flags, PML4Flags, PageFlags};
 use crate::arch::x86_64::{flush_tlb_page, get_current_pml4_phys, set_cr3};
-use crate::mm::phys::PAGE_DESCRIPTOR_MANAGER;
+use crate::mm::phys::{PAGE_DESCRIPTOR_MANAGER, PHYS_ALLOCATOR};
 use crate::mm::{PhysAddr, VirtAddr};
 use spin::RwLock;
 
@@ -47,51 +47,6 @@ impl PML4 {
     pub fn map_hhdm(&self, hhdm: VirtAddr) {
         let mut hhdm_start = HHDM_START.write();
         *hhdm_start = hhdm;
-    }
-
-    /// This function maps a 4KiB/4MiB page in virtual memory to physical memory
-    /// Allocates the associated page tables if they are not present
-    fn map(&self, virt: VirtAddr, phys: PhysAddr, flags: PageFlags, page_2mb: bool) {
-        assert!(virt.get() % 4096 == 0);
-        assert!(phys.get() % 4096 == 0);
-        // TODO: check if address is valid
-
-        let (pml4_flags, pml4_index) = (flags.to_plm4_flags(), virt.pml4_index());
-        let (pml3_flags, pml3_index) = (flags.to_plm3_flags(), virt.pml3_index());
-
-        let mut pgm = PAGE_DESCRIPTOR_MANAGER.lock();
-
-        // check if the page tables required are present, if not allocate them
-        let pml3_table_phys = self.get_or_map_pml4(&mut pgm, self.0, pml4_index, pml4_flags);
-        let pml2_table_phys =
-            self.get_or_map_pml3(&mut pgm, pml3_table_phys, pml3_index, pml3_flags);
-
-        if page_2mb {
-            let (pml2_flags, pml2_index) = (
-                flags.to_plm2_flags() | PML2Flags::PAGE_SIZE,
-                virt.pml2_index(),
-            );
-
-            self.map_pml2(&mut pgm, pml2_table_phys, pml2_index, phys, pml2_flags);
-        } else {
-            let (pml2_flags, pml2_index) = (flags.to_plm2_flags(), virt.pml2_index());
-            let pml1_table_phys =
-                self.get_or_map_pml2(&mut pgm, pml2_table_phys, pml2_index, pml2_flags);
-
-            let (pml1_flags, pml1_index) = (flags.to_plm1_flags(), virt.pml1_index());
-            self.map_pml1(&mut pgm, pml1_table_phys, pml1_index, phys, pml1_flags);
-        }
-
-        flush_tlb_page(virt.get());
-
-        if cfg!(vmm_debug) {
-            log!(
-                "VMM: mapped Virt {} -> Phys {} with flags {:?}",
-                virt,
-                phys,
-                flags
-            );
-        }
     }
 
     /// This function unmaps a page in virtual memory
@@ -160,9 +115,12 @@ impl PML4 {
 
         let mut pgm = PAGE_DESCRIPTOR_MANAGER.lock();
 
+        let mut phys_allocator = PHYS_ALLOCATOR.lock();
+
         let pml4_index = HDDM_VIRT_START.pml4_index();
         let pml4 = self.get_or_map_pml4(
             &mut pgm,
+            &mut phys_allocator,
             get_current_pml4_phys(),
             pml4_index,
             PML4Flags::READ_WRITE | PML4Flags::PRESENT,
@@ -171,6 +129,7 @@ impl PML4 {
         for pml3_index in 0..(PAGE_ENTRIES as u64) {
             let pml3 = self.get_or_map_pml3(
                 &mut pgm,
+                &mut phys_allocator,
                 pml4,
                 pml3_index,
                 PML3Flags::READ_WRITE | PML3Flags::PRESENT,
@@ -200,13 +159,80 @@ impl PML4 {
         *hddm_start = HDDM_VIRT_START;
     }
 
-    pub fn map_4kib(&self, virt: VirtAddr, phys: PhysAddr, flags: PageFlags) {
-        self.map(virt, phys, flags, false);
-    }
+    pub fn map_range(&self, from: VirtAddr, to: VirtAddr, flags: PageFlags) {
+        // TODO: make this shorter
+        assert!(from.page_offset() == 0);
+        assert!(to.page_offset() == 0);
 
-    /// Maps a 2MiB page in memory
-    pub fn map_2mib(&self, virt: VirtAddr, phys: PhysAddr, flags: PageFlags) {
-        self.map(virt, phys, flags, true);
+        let mut pgm = PAGE_DESCRIPTOR_MANAGER.lock();
+        let mut phys_allocator = PHYS_ALLOCATOR.lock();
+
+        let pml4_start = from.pml4_index();
+        let pml4_end = to.pml4_index();
+
+        let mut current_addr = from;
+
+        for pml4_idx in pml4_start..=pml4_end {
+            let pml3 = self.get_or_map_pml4(
+                &mut pgm,
+                &mut phys_allocator,
+                self.0,
+                pml4_idx,
+                flags.to_plm4_flags(),
+            );
+
+            let pml3_start = current_addr.pml3_index();
+            let pml3_end = if pml4_idx == pml4_end {
+                to.pml3_index()
+            } else {
+                PAGE_ENTRIES as u64 - 1
+            };
+
+            for pml3_idx in pml3_start..=pml3_end {
+                let pml2 = self.get_or_map_pml3(
+                    &mut pgm,
+                    &mut phys_allocator,
+                    pml3,
+                    pml3_idx,
+                    flags.to_plm3_flags(),
+                );
+
+                let pml2_start = current_addr.pml2_index();
+                let pml2_end = if pml3_idx == pml3_end {
+                    to.pml2_index()
+                } else {
+                    PAGE_ENTRIES as u64 - 1
+                };
+
+                for pml2_idx in pml2_start..=pml2_end {
+                    let pml1 = self.get_or_map_pml2(
+                        &mut pgm,
+                        &mut phys_allocator,
+                        pml2,
+                        pml2_idx,
+                        flags.to_plm2_flags(),
+                    );
+
+                    let pml1_start = current_addr.pml1_index();
+                    let pml1_end = if pml2_idx == pml2_end {
+                        to.pml1_index()
+                    } else {
+                        PAGE_ENTRIES as u64 - 1
+                    };
+
+                    let pages = pml1_end - pml1_start + 1;
+                    let phys_start = phys_allocator.alloc_multiple(pages as usize, 0x1000);
+                    for pml1_idx in pml1_start..=pml1_end {
+                        let rel_idx = pml1_idx - pml1_start;
+                        let phys = phys_start + PhysAddr::new(rel_idx * 4096);
+                        self.map_pml1(&mut pgm, pml1, pml1_idx, phys, flags.to_plm1_flags());
+
+                        flush_tlb_page(current_addr.get());
+                        current_addr = VirtAddr::new(current_addr.get() + 0x1000);
+                    }
+                }
+            }
+        }
     }
 
     fn update_frames(pgm: &mut PageDescriptorManager, phys: PhysAddr, depth_left: usize) {

@@ -4,7 +4,7 @@ use spin::Mutex;
 use crate::{
     arch::x86_64::{interrupts_enabled, paging::PageFlags, registers::RegisterState},
     mm::{
-        phys::{self, FRAME_SIZE},
+        phys::FRAME_SIZE,
         virt::{KERNEL_THREAD_STACKS_START, PML4},
         VirtAddr,
     },
@@ -82,11 +82,10 @@ impl SchedulerThreadData {
             let in_pages = KERNEL_STACK_SIZE_PER_THREAD / FRAME_SIZE as u64;
 
             // leave first page unmapped so a stack overflow causes a pagefault
-            for i in 1..=in_pages {
-                let phys = phys::alloc();
-                let virt = thread_stack_bottom + VirtAddr::new(i * FRAME_SIZE as u64);
-                pml4.map_4kib(virt, phys, PageFlags::PRESENT | PageFlags::READ_WRITE);
-            }
+            let virt_start = thread_stack_bottom + VirtAddr::new(1 * FRAME_SIZE as u64);
+            let virt_end = virt_start + VirtAddr::new((in_pages - 1) * FRAME_SIZE as u64);
+            let flags = PageFlags::READ_WRITE | PageFlags::PRESENT;
+            pml4.map_range(virt_start, virt_end, flags);
         }
 
         self.threads.resize(16, None);

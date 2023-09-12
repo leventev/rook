@@ -318,7 +318,7 @@ impl PhysAllocator {
         }
     }
 
-    fn alloc_multiple(&mut self, size: usize, align: usize) -> PhysAddr {
+    pub fn alloc_multiple(&mut self, size: usize, align: usize) -> PhysAddr {
         assert!(align % 4096 == 0);
 
         let region = self.find_region(size, align);
@@ -345,6 +345,10 @@ impl PhysAllocator {
         addr
     }
 
+    pub fn alloc_single(&mut self) -> PhysAddr {
+        self.alloc_multiple(1, 0x1000)
+    }
+
     pub const fn new_uninit() -> PhysAllocator {
         PhysAllocator {
             segments: [PhysSegment::new(); MAX_SEGMENT_COUNT],
@@ -366,18 +370,4 @@ pub fn init(memmap: &MemmapResponse) {
 pub fn init_page_descriptors() {
     let mut allocator = PHYS_ALLOCATOR.lock();
     allocator.init_page_descriptors();
-}
-
-pub fn alloc_multiple_align(size: usize, align: usize) -> PhysAddr {
-    let mut allocator = PHYS_ALLOCATOR.lock();
-    allocator.alloc_multiple(size, align)
-}
-
-pub fn alloc_multiple(size: usize) -> PhysAddr {
-    alloc_multiple_align(size, 0x1000)
-}
-
-/// Allocates a single page
-pub fn alloc() -> PhysAddr {
-    alloc_multiple(1)
 }
