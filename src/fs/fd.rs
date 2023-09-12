@@ -1,9 +1,12 @@
 use alloc::sync::Weak;
 use spin::Mutex;
 
-use crate::posix::{Stat, FileOpenFlags};
+use crate::posix::{FileOpenFlags, Stat};
 
-use super::{SeekWhence, FsIoctlError, VFSNodeType, FsStatError, FsWriteError, FsReadError, VFSNode, errors::FsSeekError};
+use super::{
+    errors::FsSeekError, FsIoctlError, FsReadError, FsStatError, FsWriteError, SeekWhence, VFSNode,
+    VFSNodeType,
+};
 
 #[derive(Debug, Clone)]
 pub struct FileDescriptor {

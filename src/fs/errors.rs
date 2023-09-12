@@ -1,4 +1,4 @@
-use crate::posix::errno::{Errno, ENOENT, ENOTDIR, EACCES};
+use crate::posix::errno::{Errno, EACCES, ENOENT, ENOTDIR};
 
 use super::path::PathParseError;
 

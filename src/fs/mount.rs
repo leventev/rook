@@ -7,8 +7,8 @@ use spin::Mutex;
 use crate::{blk::Partition, posix::Stat};
 
 use super::{
-    errors::FsMountError, path::Path, FileSystem, FileSystemSkeleton, FsInitError,
-    FsPathError, Node, VFSMountData, VFSNode, VFSNodeType, VirtualFileSystem,
+    errors::FsMountError, path::Path, FileSystem, FileSystemSkeleton, FsInitError, FsPathError,
+    Node, VFSMountData, VFSNode, VFSNodeType, VirtualFileSystem,
 };
 
 fn create_mount_point_node(name: &str, parent: Weak<Node>, fs: FileSystem) -> Arc<Node> {

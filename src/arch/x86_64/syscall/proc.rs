@@ -82,7 +82,7 @@ pub fn sys_getcwd(proc: Arc<Mutex<Process>>, args: [u64; 6]) -> u64 {
 fn getcwd(proc: Arc<Mutex<Process>>, buff: &mut [u8]) -> Result<(), Errno> {
     let p = proc.lock();
     let cwd = &p.cwd.lock();
-    
+
     let vnode = cwd.vnode.upgrade().unwrap();
     let vnode = vnode.lock();
     let vnode_path = vnode.get_path();
