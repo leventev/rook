@@ -160,7 +160,7 @@ pub fn register_blk(
     let rc = Arc::new(dev);
     let mut parts = parse_partition_table(rc.clone())
         .into_iter()
-        .map(|x| Arc::new(x))
+        .map(Arc::new)
         .collect::<Vec<Arc<Partition>>>();
 
     for part in parts.iter() {
@@ -178,10 +178,7 @@ pub fn get_partition(major: usize, minor: usize, part_idx: usize) -> Option<Weak
         dev.major == major && dev.minor == minor && part.part_idx == part_idx
     });
 
-    match part {
-        None => None,
-        Some(p) => Some(Arc::downgrade(p)),
-    }
+    part.map(Arc::downgrade)
 }
 
 /// Sends a read request to the target block device

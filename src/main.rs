@@ -34,6 +34,7 @@ mod utils;
 
 use alloc::slice;
 use arch::x86_64::{self, gdt};
+use fs::VFS;
 use limine::{BootTimeRequest, FramebufferRequest, HhdmRequest, MemmapRequest};
 use scheduler::SCHEDULER;
 
@@ -140,8 +141,11 @@ fn main_init_thread() {
 
     drivers::load_drivers();
 
-    let part = blk::get_partition(1, 0, 0).unwrap();
-    fs::mount("/", part, "fat32").unwrap();
+    {
+        let mut vfs = VFS.write();
+        let part = blk::get_partition(1, 0, 0).unwrap();
+        vfs.mount("/", part, "fat32").unwrap();
+    }
 
     devfs::init();
     console::init();

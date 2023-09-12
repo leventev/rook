@@ -5,8 +5,13 @@ use alloc::{boxed::Box, string::String, sync::Weak};
 use crate::{
     blk::{IORequest, LinearBlockAddress, Partition, BLOCK_SIZE},
     fs::{
-        self, inode::FSInode, FileSystemInner, FileSystemSkeleton, FsCloseError, FsInitError,
-        FsIoctlError, FsOpenError, FsPathError, FsReadError, FsStatError, FsWriteError,
+        errors::{
+            FsCloseError, FsInitError, FsIoctlError, FsOpenError, FsPathError, FsReadError,
+            FsStatError, FsWriteError,
+        },
+        inode::FSInode,
+        path::Path,
+        FileSystemInner, FileSystemSkeleton, VFS,
     },
     posix::{Stat, S_IFDIR, S_IFREG},
     utils::slot_allocator::SlotAllocator,
@@ -476,12 +481,13 @@ impl FATFileSystem {
         self.inode_table.get(inode.0 as usize)
     }
 
-    fn find_file(&self, path: &[String]) -> Option<DirectoryEntry> {
+    fn find_file(&self, mut path: Path) -> Option<DirectoryEntry> {
         let root_dir_start_cluster = self.root_cluster;
         let mut start_cluster = root_dir_start_cluster;
 
-        for part in &path[..path.len() - 1] {
-            let dir_ent = self.find_dir_ent(start_cluster, part.as_str());
+        while path.components_left() > 1 {
+            let comp = path.next().unwrap();
+            let dir_ent = self.find_dir_ent(start_cluster, comp);
             match dir_ent {
                 Some(ent) => {
                     match ent.ent_type {
@@ -502,13 +508,13 @@ impl FATFileSystem {
             }
         }
 
-        self.find_dir_ent(start_cluster, path.last().unwrap())
+        self.find_dir_ent(start_cluster, path.next().unwrap())
     }
 }
 
 impl FileSystemInner for FATFileSystem {
-    fn open(&mut self, path: &[String]) -> Result<FSInode, FsOpenError> {
-        if path.is_empty() {
+    fn open(&mut self, path: Path) -> Result<FSInode, FsOpenError> {
+        if path.components_left() == 0 {
             return Ok(FSInode::new(0));
         }
 
@@ -521,10 +527,9 @@ impl FileSystemInner for FATFileSystem {
                         DirectoryIndex::new(file.directory_cluster, file.directory_cluster_index),
                     )
                     .unwrap();
-                debug!("fat32 open inode: {}", inode);
                 Ok(FSInode(inode as u64))
             }
-            None => Err(FsOpenError::BadPath(FsPathError::Placeholder)),
+            None => Err(FsOpenError::BadPath(FsPathError::NoSuchFileOrDirectory)),
         }
     }
 
@@ -657,7 +662,8 @@ fn create_fs(part: Weak<Partition>) -> Result<Box<dyn FileSystemInner>, FsInitEr
 }
 
 pub fn init() -> bool {
-    fs::register_fs_skeleton(FileSystemSkeleton {
+    let mut vfs = VFS.write();
+    vfs.register_fs_skeleton(FileSystemSkeleton {
         new: create_fs,
         name: "fat32",
     })

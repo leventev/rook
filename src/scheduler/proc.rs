@@ -4,7 +4,7 @@ use crate::{
         paging::PageFlags,
         syscall::proc::{CloneArgs, CloneFlags},
     },
-    fs::{self, FileDescriptor},
+    fs::{fd::FileDescriptor, VFS},
     mm::{
         phys,
         virt::{switch_pml4, PAGE_SIZE_4KIB, PML4},
@@ -275,7 +275,8 @@ impl Process {
             let file_desc = file_lock.lock();
 
             // TODO: faster way to use the base path
-            let base_path = file_desc.vnode.path();
+            let vnode = file_desc.vnode.upgrade().unwrap();
+            let base_path = vnode.lock().get_path();
             Ok(format!("{}/{}", base_path, path))
         }
     }
@@ -430,7 +431,8 @@ impl Process {
         self.mapped_regions.clear();
 
         // TODO: proper flags
-        let mut fd = fs::open(exec_path, FileOpenFlags::empty()).unwrap();
+        let mut vfs = VFS.write();
+        let mut fd = vfs.open(exec_path, FileOpenFlags::empty()).unwrap();
 
         let mut stat_buf = Stat::zero();
         fd.stat(&mut stat_buf).unwrap();
@@ -516,8 +518,10 @@ impl Process {
     fn open_std_streams(&mut self) {
         // open console
         // TODO: proper flags
-        let console_fd =
-            fs::open("/dev/console", FileOpenFlags::O_RDWR).expect("Failed to open /dev/console");
+        let mut vfs = VFS.write();
+        let console_fd = vfs
+            .open("/dev/console", FileOpenFlags::O_RDWR)
+            .expect("Failed to open /dev/console");
 
         // stdin
         let fd = self
@@ -602,10 +606,14 @@ pub fn load_base_process(exec_path: &str) {
     let main_thread_id: ThreadID;
 
     {
-        let cwd = Arc::new(Mutex::new(
-            // TODO: proper flags
-            *fs::open("/root", FileOpenFlags::empty()).expect("Failed to open /root"),
-        ));
+        let cwd = {
+            let mut vfs = VFS.write();
+            Arc::new(Mutex::new(
+                // TODO: proper flags
+                *vfs.open("/root", FileOpenFlags::empty())
+                    .expect("Failed to open /root"),
+            ))
+        };
 
         let proc_lock = Process::create_base_process(cwd);
         let mut proc = proc_lock.lock();

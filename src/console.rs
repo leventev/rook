@@ -1,4 +1,4 @@
-use alloc::{string::String, sync::Arc, vec::Vec};
+use alloc::{sync::Arc, vec::Vec};
 use spin::Mutex;
 
 use crate::{
@@ -9,7 +9,8 @@ use crate::{
     framebuffer,
     fs::{
         devfs::{self, DevFsDevice},
-        FsIoctlError, FsReadError, FsStatError, FsWriteError,
+        errors::{FsIoctlError, FsReadError, FsStatError, FsWriteError},
+        path::Path,
     },
     posix::{
         termios::{
@@ -272,7 +273,12 @@ pub fn init() {
         terminal: Mutex::new(Terminal::new()),
     });
 
-    devfs::register_devfs_node(&[String::from("console")], ALTERNATE_TTY_DEVICE_MAJOR, 1).unwrap();
+    devfs::register_devfs_node(
+        Path::new("/console").unwrap(),
+        ALTERNATE_TTY_DEVICE_MAJOR,
+        1,
+    )
+    .unwrap();
     devfs::register_devfs_node_operations(ALTERNATE_TTY_DEVICE_MAJOR, con.clone()).unwrap();
 
     ps2::keyboard::set_key_event_handler(Some(con));

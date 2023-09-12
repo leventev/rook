@@ -7,10 +7,7 @@ use spin::Mutex;
 use crate::{
     arch::x86_64::disable_interrupts,
     mm::VirtAddr,
-    posix::{
-        errno::{self, Errno},
-        Timeval,
-    },
+    posix::{errno::Errno, Timeval},
     scheduler::{
         self,
         proc::{get_process, Process},
@@ -84,8 +81,11 @@ pub fn sys_getcwd(proc: Arc<Mutex<Process>>, args: [u64; 6]) -> u64 {
 
 fn getcwd(proc: Arc<Mutex<Process>>, buff: &mut [u8]) -> Result<(), Errno> {
     let p = proc.lock();
-    let vnode = &p.cwd.lock().vnode;
-    let vnode_path = vnode.path();
+    let cwd = &p.cwd.lock();
+    
+    let vnode = cwd.vnode.upgrade().unwrap();
+    let vnode = vnode.lock();
+    let vnode_path = vnode.get_path();
 
     if vnode_path.len() > buff.len() {
         todo!()

@@ -1,3 +1,5 @@
+use crate::fs::FileType;
+
 pub mod errno;
 pub mod termios;
 
@@ -65,6 +67,7 @@ pub struct Timeval {
 }
 
 #[repr(C, packed)]
+#[derive(Debug, Clone)]
 pub struct Stat {
     pub st_dev: u64,
     pub st_ino: u64,
@@ -82,7 +85,7 @@ pub struct Stat {
 }
 
 impl Stat {
-    pub fn zero() -> Stat {
+    pub const fn zero() -> Stat {
         Self {
             st_dev: 0,
             st_ino: 0,
@@ -106,6 +109,26 @@ impl Stat {
             },
             st_blksize: 0,
             st_blocks: 0,
+        }
+    }
+
+    pub const fn file_type(&self) -> FileType {
+        if self.st_mode & S_IFDIR > 0 {
+            FileType::Directory
+        } else if self.st_mode & S_IFREG > 0 {
+            FileType::RegularFile
+        } else if self.st_mode & S_IFCHR > 0 {
+            FileType::CharacterDevice
+        } else if self.st_mode & S_IFBLK > 0 {
+            FileType::BlockDevice
+        } else if self.st_mode & S_IFIFO > 0 {
+            FileType::FIFO
+        } else if self.st_mode & S_IFLNK > 0 {
+            FileType::Link
+        } else if self.st_mode & S_IFSOCK > 0 {
+            FileType::Socket
+        } else {
+            todo!()
         }
     }
 }

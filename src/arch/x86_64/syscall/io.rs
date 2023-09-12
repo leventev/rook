@@ -4,7 +4,10 @@ use alloc::{slice, sync::Arc};
 use spin::Mutex;
 
 use crate::{
-    fs::{self, SeekWhence},
+    fs::{
+        errors::{FsOpenError, FsStatError},
+        SeekWhence, VFS,
+    },
     posix::{
         errno::{Errno, EBADF},
         FileOpenFlags, FileOpenMode, Stat, F_DUPFD, F_DUPFD_CLOEXEC, F_GETFD, F_GETFL, F_SETFD,
@@ -18,20 +21,18 @@ pub fn sys_write(proc: Arc<Mutex<Process>>, args: [u64; 6]) -> u64 {
     let len = args[2] as usize;
     let buff = unsafe { slice::from_raw_parts(args[1] as *const u8, len) };
 
-    match write(proc, fd, len, buff) {
+    match write(proc, fd, buff) {
         Ok(n) => n as u64,
         Err(err) => err.into_inner_result() as u64,
     }
 }
 
-fn write(proc: Arc<Mutex<Process>>, fd: usize, len: usize, buff: &[u8]) -> Result<usize, Errno> {
+fn write(proc: Arc<Mutex<Process>>, fd: usize, buff: &[u8]) -> Result<usize, Errno> {
     let p = proc.lock();
     let file_lock = p.get_fd(fd).ok_or(EBADF)?;
 
     let mut file_desc = file_lock.lock();
-    file_desc.write(buff).map_err(|err| match err {
-        _ => todo!(),
-    })
+    file_desc.write(buff).map_err(|_| todo!())
 }
 
 pub fn sys_read(proc: Arc<Mutex<Process>>, args: [u64; 6]) -> u64 {
@@ -39,20 +40,18 @@ pub fn sys_read(proc: Arc<Mutex<Process>>, args: [u64; 6]) -> u64 {
     let len = args[2] as usize;
     let buff = unsafe { slice::from_raw_parts_mut(args[1] as *mut u8, len) };
 
-    match read(proc, fd, len, buff) {
+    match read(proc, fd, buff) {
         Ok(n) => n as u64,
         Err(err) => err.into_inner_result() as u64,
     }
 }
 
-fn read(proc: Arc<Mutex<Process>>, fd: usize, len: usize, buff: &mut [u8]) -> Result<usize, Errno> {
+fn read(proc: Arc<Mutex<Process>>, fd: usize, buff: &mut [u8]) -> Result<usize, Errno> {
     let p = proc.lock();
     let file_lock = p.get_fd(fd).ok_or(EBADF)?;
 
     let mut file_desc = file_lock.lock();
-    file_desc.read(buff).map_err(|err| match err {
-        _ => todo!(),
-    })
+    file_desc.read(buff).map_err(|_| todo!())
 }
 
 pub fn sys_openat(proc: Arc<Mutex<Process>>, args: [u64; 6]) -> u64 {
@@ -86,9 +85,12 @@ fn openat(
     };
 
     let file_desc = {
-        let desc = fs::open(full_path.as_str(), flags).map_err(|err| match err {
-            fs::FsOpenError::BadPath(path) => path.into_errno(),
-        })?;
+        let mut vfs = VFS.write();
+        let desc = vfs
+            .open(full_path.as_str(), flags)
+            .map_err(|err| match err {
+                FsOpenError::BadPath(path) => path.into_errno(),
+            })?;
         Arc::new(Mutex::new(*desc))
     };
 
@@ -150,10 +152,11 @@ fn fstatat(
     // TODO: validate struct
     let stat_buf = unsafe { stat_buf.as_mut() }.unwrap();
 
-    match fs::stat(&full_path, stat_buf) {
+    let mut vfs = VFS.write();
+    match vfs.stat(&full_path, stat_buf) {
         Ok(_) => Ok(0),
         Err(err) => match err {
-            fs::FsStatError::BadPath(path) => Err(path.into_errno()),
+            FsStatError::BadPath(path) => Err(path.into_errno()),
         },
     }
 }
@@ -222,7 +225,7 @@ fn ioctl(proc: Arc<Mutex<Process>>, fd: usize, req: usize, arg: usize) -> Result
     let file_desc = file_lock.lock();
     match file_desc.ioctl(req, arg) {
         Ok(ret) => Ok(ret),
-        Err(err) => todo!(),
+        Err(_) => todo!(),
     }
 }
 
@@ -257,7 +260,7 @@ fn lseek(
     let mut file_desc = file_lock.lock();
     match file_desc.lseek(offset, whence) {
         Ok(ret) => Ok(ret),
-        Err(err) => todo!(),
+        Err(_) => todo!(),
     }
 }
 
@@ -275,9 +278,10 @@ fn chdir(proc: Arc<Mutex<Process>>, path: *const c_char) -> Result<usize, Errno>
 
     let path = unsafe { CStr::from_ptr(path) }.to_str().unwrap();
     // TODO: proper flags
-    let new_cwd = Arc::new(Mutex::new(match fs::open(path, FileOpenFlags::empty()) {
+    let mut vfs = VFS.write();
+    let new_cwd = Arc::new(Mutex::new(match vfs.open(path, FileOpenFlags::empty()) {
         Ok(fd) => *fd,
-        Err(err) => todo!(),
+        Err(_) => todo!(),
     }));
 
     p.change_cwd(new_cwd);

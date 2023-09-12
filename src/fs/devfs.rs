@@ -1,12 +1,17 @@
-use alloc::{boxed::Box, string::String, sync::Arc, vec::Vec};
+use alloc::{
+    boxed::Box,
+    string::{String, ToString},
+    sync::Arc,
+    vec::Vec,
+};
 use hashbrown::HashMap;
 use spin::{Lazy, Mutex};
 
 use crate::posix::Stat;
 
 use super::{
-    inode::FSInode, mount_special, FileSystem, FileSystemInner, FsCloseError, FsIoctlError,
-    FsOpenError, FsPathError, FsReadError, FsStatError, FsWriteError,
+    inode::FSInode, path::Path, FileSystem, FileSystemInner, FsCloseError, FsIoctlError,
+    FsOpenError, FsPathError, FsReadError, FsStatError, FsWriteError, VFS,
 };
 
 pub trait DevFsDevice {
@@ -56,12 +61,10 @@ impl DeviceFileSystemInner {
 }
 
 impl FileSystemInner for DeviceFileSystem {
-    fn open(&mut self, path: &[String]) -> Result<FSInode, FsOpenError> {
+    fn open(&mut self, path: Path) -> Result<FSInode, FsOpenError> {
         let mut inner = DEVFS_INNER.lock();
 
-        let node = inner
-            .get_node(path)
-            .map_err(|err| FsOpenError::BadPath(err))?;
+        let node = inner.get_node(path).map_err(FsOpenError::BadPath)?;
 
         match node {
             DeviceFileTreeNode::Directory(_) => panic!("not implemented"),
@@ -120,34 +123,35 @@ impl DeviceFileSystemInner {
     /// exists a mutable reference is returned to it
     fn get_node<'a>(
         &'a mut self,
-        path: &[String],
+        mut path: Path,
     ) -> Result<&'a mut DeviceFileTreeNode, FsPathError> {
         let mut node = &mut self.root_node;
 
-        if path.is_empty() {
+        if path.components_left() == 0 {
             return Ok(node);
         }
 
-        for part in &path[..path.len() - 1] {
-            match *node {
-                DeviceFileTreeNode::File(_) => return Err(FsPathError::Placeholder),
+        while path.components_left() > 1 {
+            let comp = path.next().unwrap();
+            match node {
+                DeviceFileTreeNode::File(_) => return Err(FsPathError::NotADirectory),
                 DeviceFileTreeNode::Directory(ref mut entries) => {
-                    let new_node = entries.iter_mut().find(|ent| ent.0 == *part);
+                    let new_node = entries.iter_mut().find(|ent| ent.0 == comp);
                     match new_node {
                         Some(n) => node = &mut n.1,
-                        None => return Err(FsPathError::Placeholder),
+                        None => return Err(FsPathError::NoSuchFileOrDirectory),
                     }
                 }
             }
         }
 
-        let last_element = &path[path.len() - 1];
+        let last_element = path.next().unwrap();
         match node {
             DeviceFileTreeNode::Directory(entries) => {
                 let last_node = entries.iter_mut().find(|ent| ent.0 == *last_element);
                 match last_node {
                     Some(n) => Ok(&mut n.1),
-                    None => Err(FsPathError::Placeholder),
+                    None => Err(FsPathError::NoSuchFileOrDirectory),
                 }
             }
             // we already know the node is a directory
@@ -166,25 +170,42 @@ fn inode_to_dev_number(inode: FSInode) -> (u16, u16) {
     (major as u16, minor as u16)
 }
 
-pub fn register_devfs_node(path: &[String], major: u16, minor: u16) -> Result<(), DevFsError> {
+pub fn register_devfs_node(mut path: Path, major: u16, minor: u16) -> Result<(), DevFsError> {
     let inode = dev_number_to_inode(major, minor);
 
     let mut inner = DEVFS_INNER.lock();
+    let mut node = &mut inner.root_node;
 
-    let parent_node = inner
-        .get_node(&path[..path.len() - 1])
-        .map_err(|err| DevFsError::BadPath(err))?;
+    if path.components_left() == 0 {
+        return Err(DevFsError::AlreadyExists);
+    }
 
-    match parent_node {
-        DeviceFileTreeNode::Directory(entries) => {
-            let last_part = path.last().unwrap();
-            let node = entries.iter().find(|f| f.0 == *last_part);
-            match node {
-                Some(_) => return Err(DevFsError::AlreadyExists),
-                None => entries.push((last_part.clone(), DeviceFileTreeNode::File(inode))),
+    while path.components_left() > 1 {
+        let comp = path.next().unwrap();
+        match node {
+            DeviceFileTreeNode::File(_) => {
+                return Err(DevFsError::BadPath(FsPathError::NotADirectory))
+            }
+            DeviceFileTreeNode::Directory(ref mut entries) => {
+                let new_node = entries.iter_mut().find(|ent| ent.0 == comp);
+                match new_node {
+                    Some(n) => node = &mut n.1,
+                    None => return Err(DevFsError::BadPath(FsPathError::NoSuchFileOrDirectory)),
+                }
             }
         }
-        DeviceFileTreeNode::File(_) => return Err(DevFsError::IsFile),
+    }
+
+    let last_element = path.next().unwrap();
+    match node {
+        DeviceFileTreeNode::Directory(entries) => {
+            let last_node = entries.iter_mut().find(|ent| ent.0 == *last_element);
+            match last_node {
+                Some(_) => return Err(DevFsError::AlreadyExists),
+                None => entries.push((last_element.to_string(), DeviceFileTreeNode::File(inode))),
+            }
+        }
+        DeviceFileTreeNode::File(_) => return Err(DevFsError::BadPath(FsPathError::NotADirectory)),
     }
 
     Ok(())
@@ -204,7 +225,8 @@ pub fn register_devfs_node_operations(
 }
 
 pub fn init() {
-    mount_special(
+    let mut vfs = VFS.write();
+    vfs.mount_special(
         "/dev",
         FileSystem {
             name: "devfs",

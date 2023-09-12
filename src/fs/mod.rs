@@ -1,72 +1,35 @@
-use core::{cell::Cell, fmt::Debug};
+use core::fmt::Debug;
 
 use alloc::{
     boxed::Box,
     collections::BTreeMap,
-    format,
-    string::String,
-    sync::{self, Arc, Weak},
+    string::{String, ToString},
+    sync::{Arc, Weak},
     vec::Vec,
 };
-use spin::RwLock;
+use spin::{Mutex, RwLock};
 
 use crate::{
     blk::Partition,
-    posix::{
-        errno::{Errno, ENOSYS},
-        FileOpenFlags, Stat,
-    },
+    posix::{FileOpenFlags, Stat},
 };
 
-use self::inode::FSInode;
+use self::{
+    errors::{
+        FsCloseError, FsInitError, FsIoctlError, FsOpenError, FsPathError, FsReadError,
+        FsStatError, FsWriteError,
+    },
+    fd::FileDescriptor,
+    inode::FSInode,
+    path::Path,
+};
 
 pub mod devfs;
+pub mod errors;
+pub mod fd;
 pub mod inode;
-
-#[derive(Debug)]
-pub enum FsPathError {
-    // TODO: normal path errors
-    Placeholder,
-}
-
-#[derive(Debug)]
-pub enum FsReadError {}
-
-#[derive(Debug)]
-pub enum FsWriteError {}
-
-#[derive(Debug)]
-pub enum FsOpenError {
-    BadPath(FsPathError),
-}
-
-#[derive(Debug)]
-pub enum FsCloseError {}
-
-#[derive(Debug)]
-pub enum FsStatError {
-    BadPath(FsPathError),
-}
-
-#[derive(Debug)]
-pub enum FsIoctlError {}
-
-#[derive(Debug)]
-pub enum FsSeekError {}
-
-#[derive(Debug)]
-pub enum FsInitError {
-    InvalidSkeleton,
-    InvalidMagic,
-    InvalidSuperBlock,
-}
-
-#[derive(Debug)]
-pub enum FsMountError {
-    BadPath(FsPathError),
-    PathAlreadyInUse,
-    FileSystemInitFailed(FsInitError),
-}
+pub mod mount;
+pub mod path;
 
 pub enum SeekWhence {
     Set,
@@ -74,17 +37,9 @@ pub enum SeekWhence {
     End,
 }
 
-impl FsPathError {
-    pub fn into_errno(self) -> Errno {
-        match self {
-            FsPathError::Placeholder => ENOSYS,
-        }
-    }
-}
-
 pub trait FileSystemInner: Debug {
     /// Opens a file, returns the inode
-    fn open(&mut self, path: &[String]) -> Result<FSInode, FsOpenError>;
+    fn open(&mut self, path: Path) -> Result<FSInode, FsOpenError>;
 
     /// Opens a file, returns the inode
     fn close(&mut self, inode: FSInode) -> Result<(), FsCloseError>;
@@ -111,388 +66,265 @@ pub struct FileSystem {
 }
 
 #[derive(Debug)]
-struct MountPoint {
-    path: Vec<String>,
-    fs: FileSystem,
-    nodes: BTreeMap<Vec<String>, Arc<VFSNode>>,
+pub enum FileType {
+    Directory,
+    CharacterDevice,
+    BlockDevice,
+    RegularFile,
+    FIFO,
+    Link,
+    Socket,
 }
 
-impl MountPoint {
-    fn new(path: Vec<String>, fs: FileSystem) -> MountPoint {
-        MountPoint {
-            path,
-            fs,
-            nodes: BTreeMap::new(),
-        }
-    }
-
-    /// Extract the local mount path of a path
-    fn get_subpath<'a>(&self, path: &'a Vec<String>) -> &'a [String] {
-        &path[self.path.len()..]
-    }
-}
-
-impl PartialEq for MountPoint {
-    fn eq(&self, other: &Self) -> bool {
-        self.path == other.path
-    }
-}
-
-struct VirtualFileSystem {
+pub struct VirtualFileSystem {
     fs_skeletons: Vec<FileSystemSkeleton>,
-    // TODO: maybe it should be a Mutex?
-    mounts: Vec<Arc<RwLock<MountPoint>>>,
+    // the root vnode only has one owner but it needs to be an Arc
+    // for file descriptors to be able to point to it with a Weak
+    root: Option<Arc<Node>>,
 }
 
 #[derive(Debug)]
-pub struct VFSNode {
-    path: String,
-    mount: sync::Weak<RwLock<MountPoint>>,
-    // FIXME: remove Cell
-    size: Cell<usize>,
+pub struct VFSDirectoryData {
+    mount: Weak<Mutex<VFSNode>>,
+    entries: RwLock<BTreeMap<String, Arc<Node>>>,
+}
+
+#[derive(Debug)]
+pub struct VFSFileData {
+    mount: Weak<Mutex<VFSNode>>,
     inode: FSInode,
 }
 
+#[derive(Debug)]
+pub struct VFSMountData {
+    fs: FileSystem,
+    dir: VFSDirectoryData,
+}
+
+#[derive(Debug)]
+pub enum VFSNodeType {
+    File(VFSFileData),
+    Directory(VFSDirectoryData),
+    MountPoint(VFSMountData),
+}
+
+// TODO: use the same string that the hashmap uses to reduce memory usage
+#[derive(Debug)]
+pub struct VFSNode {
+    name: String,
+    node_type: VFSNodeType,
+    parent: Weak<Node>,
+    stat: Stat,
+}
+
+type Node = Mutex<VFSNode>;
+
+impl VFSDirectoryData {
+    fn new(mount: Weak<Node>) -> VFSDirectoryData {
+        VFSDirectoryData {
+            entries: RwLock::new(BTreeMap::new()),
+            mount,
+        }
+    }
+}
+
+impl VFSMountData {
+    fn new(fs: FileSystem) -> VFSMountData {
+        VFSMountData {
+            fs,
+            dir: VFSDirectoryData::new(Weak::new()),
+        }
+    }
+}
+
+impl VFSFileData {
+    fn new(mount: Weak<Mutex<VFSNode>>, inode: FSInode) -> VFSFileData {
+        VFSFileData { mount, inode }
+    }
+}
+
 impl VFSNode {
-    pub fn path(&self) -> &String {
-        &self.path
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct FileDescriptor {
-    pub vnode: Arc<VFSNode>,
-    pub offset: usize,
-    pub flags: FileOpenFlags,
-}
-
-impl Drop for FileDescriptor {
-    fn drop(&mut self) {
-        let strong_count = Arc::strong_count(&self.vnode);
-        // not sure if this is the best way to do this but its fine for now
-        // 2 = hashmap and self
-        if strong_count == 2 {
-            warn!("file descriptor dropped");
-            // TODO: remove
+    fn get_fs(&mut self) -> Option<&mut FileSystem> {
+        match &mut self.node_type {
+            VFSNodeType::MountPoint(mount) => Some(&mut mount.fs),
+            _ => None,
         }
     }
-}
 
-impl FileDescriptor {
-    pub fn read(&mut self, buff: &mut [u8]) -> Result<usize, FsReadError> {
-        if buff.len() == 0 {
-            return Ok(0);
+    pub fn get_path(&self) -> String {
+        // TODO: optimize
+        let mut str = String::new();
+        for ch in self.name.chars().rev() {
+            str.push(ch);
         }
 
-        let mount_lock = self.vnode.mount.upgrade().unwrap();
-        let mut mount = mount_lock.write();
-
-        let read = mount.fs.inner.read(self.vnode.inode, self.offset, buff)?;
-        self.offset += read;
-
-        Ok(read)
-    }
-
-    pub fn write(&mut self, buff: &[u8]) -> Result<usize, FsWriteError> {
-        if buff.is_empty() {
-            return Ok(0);
-        }
-
-        let mount_lock = self.vnode.mount.upgrade().unwrap();
-        let mut mount = mount_lock.write();
-
-        let read = mount.fs.inner.write(self.vnode.inode, self.offset, buff)?;
-        self.offset += read;
-
-        Ok(read)
-    }
-
-    pub fn stat(&self, stat_buf: &mut Stat) -> Result<(), FsStatError> {
-        let mount_lock = self.vnode.mount.upgrade().unwrap();
-        let mut mount = mount_lock.write();
-        mount.fs.inner.stat(self.vnode.inode, stat_buf)
-    }
-
-    pub fn ioctl(&self, req: usize, arg: usize) -> Result<usize, FsIoctlError> {
-        let mount_lock = self.vnode.mount.upgrade().unwrap();
-        let mut mount = mount_lock.write();
-        mount.fs.inner.ioctl(self.vnode.inode, req, arg)
-    }
-
-    pub fn lseek(&mut self, offset: usize, whence: SeekWhence) -> Result<usize, FsSeekError> {
-        let new_off = match whence {
-            SeekWhence::Set => offset,
-            SeekWhence::Cur => self.offset + offset,
-            SeekWhence::End => {
-                // TODO: normal SeekWhence::End
-                let mut buff = Stat::zero();
-                self.stat(&mut buff).unwrap();
-                buff.st_size as usize + offset
+        let mut parent = self.parent.clone();
+        while let Some(p) = parent.upgrade() {
+            let p = p.lock();
+            str.push('/');
+            for ch in p.name.chars().rev() {
+                str.push(ch);
             }
-        };
+            parent = p.parent.clone();
+        }
 
-        self.offset = new_off;
+        str.chars().rev().collect()
+    }
 
-        Ok(new_off)
+    pub fn is_file(&self) -> bool {
+        matches!(self.node_type, VFSNodeType::File(_))
+    }
+
+    pub fn is_mount_point(&self) -> bool {
+        matches!(self.node_type, VFSNodeType::MountPoint(_))
+    }
+
+    pub fn is_dirile(&self) -> bool {
+        matches!(self.node_type, VFSNodeType::Directory(_))
+    }
+
+    fn get_dir_data(&mut self) -> Option<&mut VFSDirectoryData> {
+        match &mut self.node_type {
+            VFSNodeType::File(_) => None,
+            VFSNodeType::Directory(dir) | VFSNodeType::MountPoint(VFSMountData { dir, .. }) => {
+                Some(dir)
+            }
+        }
     }
 }
 
 unsafe impl Send for VirtualFileSystem {}
 unsafe impl Sync for VirtualFileSystem {}
 
+pub fn dir_get_entry(
+    parent: Arc<Node>,
+    name: &str,
+    current_mount: &Arc<Node>,
+    subpath: Path,
+) -> Result<Arc<Node>, FsPathError> {
+    {
+        let mut dir = parent.lock();
+        let dir_data = dir.get_dir_data().ok_or(FsPathError::NotADirectory)?;
+        let entries = dir_data.entries.read();
+
+        if let Some(node) = entries.get(name) {
+            return Ok(node.clone());
+        }
+    }
+
+    // unlock because the parent directory can be the current mount too and create_new_node causes a deadlock if parent is locked
+
+    let node = VirtualFileSystem::create_new_node(name, &parent, current_mount, subpath)
+        .map_err(|_| FsPathError::NoSuchFileOrDirectory)?;
+
+    let mut dir = parent.lock();
+    let dir_data = dir.get_dir_data().ok_or(FsPathError::NotADirectory)?;
+    let mut entries = dir_data.entries.write();
+
+    entries.insert(name.to_string(), node.clone());
+
+    Ok(node)
+}
+
 impl VirtualFileSystem {
     const fn new() -> VirtualFileSystem {
         VirtualFileSystem {
-            mounts: Vec::new(),
+            root: None,
             fs_skeletons: Vec::new(),
         }
     }
 
-    /// Finds the skeleton file system for __skel_name__ and creates a new instance of it
-    fn create_new_filesystem(
+    fn create_new_node(
+        name: &str,
+        parent: &Arc<Node>,
+        mount_lock: &Arc<Mutex<VFSNode>>,
+        subpath: Path,
+    ) -> Result<Arc<Node>, FsOpenError> {
+        let mut mount = mount_lock.lock();
+        let fs = mount.get_fs().unwrap();
+
+        // normal subpath
+        let inode = fs.inner.open(subpath)?;
+
+        let mut stat_buf: Stat = Stat::zero();
+        fs.inner.stat(inode, &mut stat_buf).unwrap();
+
+        let mount_weak = Arc::downgrade(mount_lock);
+        let node_type = match stat_buf.file_type() {
+            FileType::Directory => VFSNodeType::Directory(VFSDirectoryData::new(mount_weak)),
+            _ => VFSNodeType::File(VFSFileData::new(mount_weak, inode)),
+        };
+
+        let node = VFSNode {
+            name: name.to_string(),
+            parent: Arc::downgrade(parent),
+            node_type,
+            stat: stat_buf,
+        };
+
+        Ok(Arc::new(Mutex::new(node)))
+    }
+
+    fn traverse_path(
         &mut self,
-        skel_name: &str,
-        part: Weak<Partition>,
-    ) -> Result<FileSystem, FsInitError> {
-        match self.fs_skeletons.iter().find(|fs| fs.name == skel_name) {
-            Some(fs) => Ok(FileSystem {
-                name: fs.name,
-                inner: (fs.new)(part)?,
-            }),
-            None => Err(FsInitError::InvalidSkeleton),
+        path: &mut Path,
+        components_to_leave_out: usize,
+    ) -> Result<Arc<Node>, FsPathError> {
+        let root_node = self.root.as_ref().expect("Root filesystem is not mounted");
+        let mut current_node = root_node.clone();
+        let mut current_mount = root_node.clone();
+        let mut remaining_path = path.clone();
+        let mut subpath_comp_count = 0;
+
+        while path.components_left() > components_to_leave_out {
+            subpath_comp_count += 1;
+            let comp = path.next().unwrap();
+            current_node = dir_get_entry(
+                current_node,
+                comp,
+                &current_mount,
+                remaining_path.clone().shorten(subpath_comp_count),
+            )?;
+
+            let node = current_node.lock();
+            if node.is_mount_point() {
+                current_mount = current_node.clone();
+                remaining_path = path.clone();
+                subpath_comp_count = 0;
+            }
         }
+
+        Ok(current_node)
     }
 
-    /// Registers a skeleton file system
-    fn register_fs_skeleton(&mut self, skel: FileSystemSkeleton) -> Result<(), ()> {
-        if self
-            .fs_skeletons
-            .iter()
-            .find(|fs| fs.name == skel.name)
-            .is_some()
-        {
-            return Err(());
-        }
-
-        if cfg!(vfs_debug) {
-            log!(
-                "VFS: registered {} {:?} file system skeleton",
-                skel.name,
-                skel.new
-            );
-        }
-
-        self.fs_skeletons.push(skel);
-        Ok(())
-    }
-
-    fn mount_special(&mut self, path: &str, filesystem: FileSystem) -> Result<(), FsMountError> {
-        if cfg!(vfs_debug) {
-            log!(
-                "VFS: attempting to mount {} filesystem to {} ",
-                filesystem.name,
-                path
-            );
-        }
-
-        let parsed_path =
-            parse_path(path).ok_or(FsMountError::BadPath(FsPathError::Placeholder))?;
-
-        if self.find_mount(&parsed_path).is_some() {
-            return Err(FsMountError::PathAlreadyInUse);
-        }
-
-        self.mounts.push(Arc::new(RwLock::new(MountPoint {
-            path: parsed_path,
-            fs: filesystem,
-            nodes: BTreeMap::new(),
-        })));
-
-        Ok(())
-    }
-
-    fn mount(
-        &mut self,
-        path: &str,
-        part: Weak<Partition>,
-        fs_name: &str,
-    ) -> Result<(), FsMountError> {
-        if cfg!(vfs_debug) {
-            let blk_dev_name = {
-                let part = part.upgrade().unwrap();
-                let blk_dev = part.block_device.upgrade().unwrap();
-                format!(
-                    "device: {} major: {} minor: {} part: {}",
-                    blk_dev.name, blk_dev.major, blk_dev.minor, part.part_idx
-                )
-            };
-            log!(
-                "VFS: attempting to mount {}({}) filesystem to {} ",
-                fs_name,
-                blk_dev_name,
-                path
-            );
-        }
-
-        let parsed_path =
-            parse_path(path).ok_or(FsMountError::BadPath(FsPathError::Placeholder))?;
-
-        if self.find_mount(&parsed_path).is_some() {
-            return Err(FsMountError::PathAlreadyInUse);
-        }
-
-        let fs = self
-            .create_new_filesystem(fs_name, part)
-            .map_err(|err| FsMountError::FileSystemInitFailed(err))?;
-
-        self.mounts
-            .push(Arc::new(RwLock::new(MountPoint::new(parsed_path, fs))));
-
-        Ok(())
-    }
-
-    fn find_path_mount(&mut self, path: &Vec<String>) -> Option<Arc<RwLock<MountPoint>>> {
-        let mounts = &mut self.mounts;
-        for i in (0..path.len() + 1).rev() {
-            let subpath = &path[0..i];
-
-            let pos = mounts.iter_mut().position(|mount_lock| {
-                let mount = mount_lock.read();
-                &mount.path[..] == subpath
-            });
-
-            match pos {
-                Some(idx) => return Some(self.mounts[idx].clone()),
-                None => continue,
-            };
-        }
-
-        None
-    }
-
-    fn find_mount(&mut self, mount_path: &Vec<String>) -> Option<Arc<RwLock<MountPoint>>> {
-        let mounts = &mut self.mounts;
-        let pos = mounts.iter_mut().position(|mount_lock| {
-            let mount = mount_lock.read();
-            &mount.path[..] == mount_path
-        });
-
-        match pos {
-            Some(idx) => Some(self.mounts[idx].clone()),
-            None => None,
-        }
-    }
-
-    fn open(
+    pub fn open(
         &mut self,
         path: &str,
         flags: FileOpenFlags,
     ) -> Result<Box<FileDescriptor>, FsOpenError> {
-        debug!("vfs open {}", path);
-
-        let parsed_path = parse_path(path).ok_or(FsOpenError::BadPath(FsPathError::Placeholder))?;
-
-        let mount_lock = self
-            .find_path_mount(&parsed_path)
-            .expect("Root filesystem is not mounted");
-
-        let mut mount = mount_lock.write();
-        let subpath = mount.get_subpath(&parsed_path);
-
-        if !mount.nodes.contains_key(subpath) {
-            let inode = mount.fs.inner.open(subpath)?;
-
-            let n = VFSNode {
-                path: String::from(path),
-                mount: Arc::downgrade(&mount_lock),
-                inode,
-                size: Cell::new(1234),
-            };
-
-            mount.nodes.insert(subpath.to_vec(), Arc::new(n));
-        }
-
-        let node = mount.nodes.get(subpath).unwrap();
+        let mut path =
+            Path::new(path).map_err(|err| FsOpenError::BadPath(FsPathError::ParseError(err)))?;
+        let node = self
+            .traverse_path(&mut path, 0)
+            .map_err(FsOpenError::BadPath)?;
 
         Ok(Box::new(FileDescriptor {
-            vnode: Arc::clone(node),
+            vnode: Arc::downgrade(&node),
             offset: 0,
             flags,
         }))
     }
 
-    fn stat(&mut self, path: &str, stat_buf: &mut Stat) -> Result<(), FsStatError> {
-        let parsed_path = parse_path(path).ok_or(FsStatError::BadPath(FsPathError::Placeholder))?;
+    pub fn stat(&mut self, path: &str, stat_buf: &mut Stat) -> Result<(), FsStatError> {
+        let mut path =
+            Path::new(path).map_err(|err| FsStatError::BadPath(FsPathError::ParseError(err)))?;
+        let node = self
+            .traverse_path(&mut path, 0)
+            .map_err(FsStatError::BadPath)?;
+        *stat_buf = node.lock().stat.clone();
 
-        let mount_lock = self
-            .find_path_mount(&parsed_path)
-            .expect("Root filesystem is not mounted");
-        let mut mount = mount_lock.write();
-
-        let subpath = mount.get_subpath(&parsed_path);
-
-        // TODO: dcache
-        // TODO: dcache
-        // TODO: dcache
-        // TODO: dcache
-        let inode = match mount.fs.inner.open(subpath) {
-            Ok(inode) => inode,
-            // TODO errno
-            Err(err) => return Err(FsStatError::BadPath(FsPathError::Placeholder)),
-        };
-
-        mount.fs.inner.stat(inode, stat_buf)?;
-        mount.fs.inner.close(inode).unwrap();
         Ok(())
     }
 }
 
-static VFS: RwLock<VirtualFileSystem> = RwLock::new(VirtualFileSystem::new());
-
-/// Parses a string and returns a vector of the parts without the /-s except the first
-fn parse_path(path: &str) -> Option<Vec<String>> {
-    if !path.starts_with("/") {
-        return None;
-    }
-
-    // TODO: check if there are invalid paths such as /test//test2
-    let path = path
-        .split("/")
-        .filter(|s| s.len() > 0)
-        .map(|s| String::from(s))
-        .collect::<Vec<String>>();
-
-    Some(path)
-}
-
-pub fn mount_special(path: &str, filesystem: FileSystem) -> Result<(), FsMountError> {
-    let mut vfs = VFS.write();
-    vfs.mount_special(path, filesystem)
-}
-
-pub fn mount(path: &str, part: Weak<Partition>, fs_name: &str) -> Result<(), FsMountError> {
-    let mut vfs = VFS.write();
-    vfs.mount(path, part, fs_name)
-}
-
-pub fn open(path: &str, flags: FileOpenFlags) -> Result<Box<FileDescriptor>, FsOpenError> {
-    let node = {
-        let mut vfs = VFS.write();
-        match vfs.open(path, flags) {
-            Ok(node) => node,
-            Err(err) => return Err(err),
-        }
-    };
-
-    Ok(node)
-}
-
-pub fn stat(path: &str, stat_buf: &mut Stat) -> Result<(), FsStatError> {
-    let mut vfs = VFS.write();
-    vfs.stat(path, stat_buf)
-}
-
-pub fn register_fs_skeleton(skel: FileSystemSkeleton) -> Result<(), ()> {
-    let mut vfs = VFS.write();
-    vfs.register_fs_skeleton(skel)
-}
+pub static VFS: RwLock<VirtualFileSystem> = RwLock::new(VirtualFileSystem::new());

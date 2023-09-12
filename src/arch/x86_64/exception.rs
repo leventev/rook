@@ -1,5 +1,5 @@
 use crate::{
-    arch::x86_64::{self, get_cr2, get_current_pml4, paging::PageFlags},
+    arch::x86_64::{get_cr2, get_current_pml4, paging::PageFlags},
     mm::{phys, virt::PAGE_SIZE_4KIB, VirtAddr},
 };
 
