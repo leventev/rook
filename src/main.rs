@@ -29,6 +29,7 @@ mod posix;
 mod scheduler;
 mod sync;
 mod syscall;
+mod syscalls;
 mod time;
 mod utils;
 

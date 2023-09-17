@@ -615,7 +615,8 @@ impl FileSystemInner for FATFileSystem {
                     lba: self.cluster_start_lba(cluster),
                     buff: &mut sub_buff[..],
                     size: 1,
-                }).unwrap();
+                })
+                .unwrap();
             } else {
                 let mut sector_buff: [u8; BLOCK_SIZE] = unsafe {
                     transmute(MaybeUninit::<[MaybeUninit<u8>; BLOCK_SIZE]>::uninit().assume_init())
@@ -625,7 +626,8 @@ impl FileSystemInner for FATFileSystem {
                     lba: self.cluster_start_lba(cluster),
                     buff: &mut sector_buff[..],
                     size: 1,
-                }).unwrap();
+                })
+                .unwrap();
 
                 sub_buff.copy_from_slice(&sector_buff[..read]);
             }
