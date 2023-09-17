@@ -10,3 +10,5 @@ toolchain/gcc-*
 .vscode/
 ports/bash/bash-5.2
 ports/bash/build
+ports/coreutils/coreutils-9.4
+ports/coreutils/build

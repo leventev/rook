@@ -1,6 +1,6 @@
 use core::mem::{transmute, MaybeUninit};
 
-use alloc::{boxed::Box, string::String, sync::Weak};
+use alloc::{boxed::Box, string::String, sync::Weak, vec};
 
 use crate::{
     blk::{IORequest, LinearBlockAddress, Partition, BLOCK_SIZE},
@@ -269,22 +269,25 @@ impl FATFileSystem {
 
     /// Read the specified cluster from the File Allocation Table
     fn get_fat_entry(&self, cluster: ClusterIndex) -> ClusterIndex {
-        let offsets = cluster.fat_position();
+        let (table_lba_idx, table_idx) = cluster.fat_position();
 
         let p = self.partition.upgrade().unwrap();
         let mut sector_data: [u8; BLOCK_SIZE] = unsafe {
             transmute(MaybeUninit::<[MaybeUninit<u8>; BLOCK_SIZE]>::uninit().assume_init())
         };
 
-        let table_lba = self.fat_table_lba(offsets.0);
+        let table_lba = self.fat_table_lba(table_lba_idx);
         p.read(IORequest::new(table_lba, 1, &mut sector_data[..]))
             .unwrap();
 
         // TODO: do this safely
-        let ptr = unsafe { (sector_data.as_ptr() as *const u32).add(offsets.1) };
-        let val = unsafe { *ptr } as usize;
+        let val = unsafe {
+            let ptr = (sector_data.as_ptr() as *const u32).add(table_idx);
+            ptr.read()
+        } as usize;
         ClusterIndex(val & 0x0FFFFFFF)
     }
+    //debug!("cluster {} -> {}", cluster.0, new_cluster.0);
 
     fn parse_short_dir_ent_filename(filename: &[u8; 11]) -> String {
         let filebase = &filename[..8];
@@ -315,6 +318,7 @@ impl FATFileSystem {
         dir_start_cluster: ClusterIndex,
         filename: &str,
     ) -> Option<DirectoryEntry> {
+        debug!("find dir ent {} {}", dir_start_cluster.0, filename);
         let p = self.partition.upgrade().unwrap();
         let mut sector_data: [u8; BLOCK_SIZE] = unsafe {
             transmute(MaybeUninit::<[MaybeUninit<u8>; BLOCK_SIZE]>::uninit().assume_init())
@@ -373,6 +377,7 @@ impl FATFileSystem {
                         temp_str.push(c as u8 as char);
                     }
 
+                    debug!("{} {}", i, temp_str);
                     long_file_name.insert_str(0, &temp_str);
                 } else {
                     let ent: &ShortDirectoryEntry = unsafe {
@@ -412,6 +417,7 @@ impl FATFileSystem {
                 }
             }
 
+            debug!("get new cluster {}", cluster.0);
             cluster = self.get_fat_entry(cluster);
         }
 
@@ -593,39 +599,40 @@ impl FileSystemInner for FATFileSystem {
             return Ok(0);
         }
 
+        let cluster_size = self.sectors_per_cluster * BLOCK_SIZE;
+
         let mut total_read = 0;
-        let mut start_off = offset % BLOCK_SIZE;
+        let mut start_off = offset % cluster_size;
 
         while size_left > 0 && buff_left > 0 {
             assert!(cluster.valid_cluster());
 
             let read = (if start_off > 0 {
-                BLOCK_SIZE - start_off
+                cluster_size - start_off
             } else {
                 size_left
             })
-            .min(BLOCK_SIZE)
+            .min(cluster_size)
             .min(buff_left)
             .min(size_left);
 
             let sub_buff = &mut buff[total_read..total_read + read];
 
-            if read == BLOCK_SIZE {
+            if read == cluster_size {
                 part.read(IORequest {
                     lba: self.cluster_start_lba(cluster),
                     buff: &mut sub_buff[..],
-                    size: 1,
+                    size: self.sectors_per_cluster,
                 })
                 .unwrap();
             } else {
-                let mut sector_buff: [u8; BLOCK_SIZE] = unsafe {
-                    transmute(MaybeUninit::<[MaybeUninit<u8>; BLOCK_SIZE]>::uninit().assume_init())
-                };
+                // TODO
+                let mut sector_buff = vec![0; cluster_size];
 
                 part.read(IORequest {
                     lba: self.cluster_start_lba(cluster),
                     buff: &mut sector_buff[..],
-                    size: 1,
+                    size: self.sectors_per_cluster,
                 })
                 .unwrap();
 

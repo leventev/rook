@@ -9,7 +9,7 @@ TESTIMGPATH=bin/rook.img
 SYSROOT=$(realpath root)
 
 mkdir -p bin
-dd if=/dev/zero of=$TESTIMGPATH bs=512 count=204800
+dd if=/dev/zero of=$TESTIMGPATH bs=512 count=1024000
 chmod 777 $TESTIMGPATH 
 # ^^^^ this is a bad idea ^^^^
 cat fdisk_inst.txt | fdisk -u $TESTIMGPATH
