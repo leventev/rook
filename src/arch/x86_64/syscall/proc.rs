@@ -60,16 +60,6 @@ pub fn sys_getegid(proc: Arc<Mutex<Process>>, _args: [u64; 6]) -> u64 {
     proc.lock().egid as u64
 }
 
-pub fn sys_getcwd(proc: Arc<Mutex<Process>>, args: [u64; 6]) -> u64 {
-    let len = args[1] as usize;
-    let buff = unsafe { slice::from_raw_parts_mut(args[0] as *mut u8, len) };
-
-    match syscalls::proc::getcwd::getcwd(proc, buff) {
-        Ok(_) => 0,
-        Err(err) => err.into_inner_result() as u64,
-    }
-}
-
 pub fn sys_getpgid(proc: Arc<Mutex<Process>>, args: [u64; 6]) -> u64 {
     let pid = args[0] as isize;
 
@@ -85,18 +75,6 @@ pub fn sys_setpgid(proc: Arc<Mutex<Process>>, args: [u64; 6]) -> u64 {
 
     match syscalls::proc::setpgid::setpgid(proc, pid, pgid) {
         Ok(_) => 0,
-        Err(err) => err.into_inner_result() as u64,
-    }
-}
-
-pub fn sys_chdir(proc: Arc<Mutex<Process>>, args: [u64; 6]) -> u64 {
-    let path = args[0] as *const u8;
-    let path_len = args[1] as usize;
-
-    let path = utils::get_userspace_string(path, path_len);
-
-    match syscalls::proc::chdir::chdir(proc, &path) {
-        Ok(n) => n as u64,
         Err(err) => err.into_inner_result() as u64,
     }
 }
@@ -117,7 +95,7 @@ pub fn sys_execve(proc: Arc<Mutex<Process>>, args: [u64; 6]) -> u64 {
     let argv = args[2] as *const *const c_char;
     let envp = args[3] as *const *const c_char;
 
-    let path = utils::get_userspace_string(path, path_len);
+    let path = utils::get_userspace_string(path, path_len).unwrap();
 
     let argv = unsafe { parse_c_char_array(argv) };
     let envp = unsafe { parse_c_char_array(envp) };

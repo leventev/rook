@@ -3,33 +3,45 @@ use spin::Mutex;
 
 use crate::{
     fs::{errors::FsStatError, VFS},
-    posix::{errno::Errno, Stat},
+    posix::{
+        errno::{Errno, EBADF},
+        Stat,
+    },
     scheduler::proc::Process,
 };
 
 pub fn fstatat(
     proc: Arc<Mutex<Process>>,
     fd: isize,
-    path: &str,
-    stat_buf: *mut Stat,
+    path: Option<&str>,
+    stat_buf: &mut Stat,
     _flag: usize,
-) -> Result<usize, Errno> {
+) -> Result<(), Errno> {
     // TODO: flag
     let p = proc.lock();
 
-    let full_path = match p.get_full_path_from_dirfd(fd, path) {
-        Ok(path) => path,
-        Err(_) => todo!(),
+    let at_cwd = fd == -100;
+    if !at_cwd && fd < 0 {
+        return Err(EBADF);
     };
 
-    // TODO: validate struct
-    let stat_buf = unsafe { stat_buf.as_mut() }.unwrap();
+    let fd = fd as usize;
 
-    let mut vfs = VFS.write();
-    match vfs.stat(&full_path, stat_buf) {
-        Ok(_) => Ok(0),
-        Err(err) => match err {
-            FsStatError::BadPath(path) => Err(path.into()),
-        },
+    match path {
+        Some(path) => {
+            let full_path = p.get_full_path_from_dirfd(fd, path).unwrap();
+            let mut vfs = VFS.write();
+            match vfs.stat(&full_path, stat_buf) {
+                Ok(_) => Ok(()),
+                Err(err) => match err {
+                    FsStatError::BadPath(path) => Err(path.into()),
+                },
+            }
+        }
+        None => {
+            let file_desc = p.get_fd(fd).ok_or(EBADF)?;
+            let file_desc = file_desc.lock();
+            file_desc.stat(stat_buf).map_err(|err| err.into())
+        }
     }
 }

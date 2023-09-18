@@ -12,7 +12,7 @@ use crate::{
         virt::{switch_pml4, PAGE_SIZE_4KIB, PML4},
         VirtAddr,
     },
-    posix::{FileOpenFlags, Stat, AT_FCWD},
+    posix::{FileOpenFlags, Stat},
     scheduler::{ThreadInner, SCHEDULER},
     utils::slot_allocator::SlotAllocator,
 };
@@ -91,8 +91,6 @@ pub struct Process {
     pub gid: usize,
     pub egid: usize,
 
-    pub cwd: Arc<Mutex<FileDescriptor>>,
-
     mapped_regions: Vec<MappedRegion>,
 
     pub main_thread: Weak<Mutex<Thread>>,
@@ -105,7 +103,7 @@ unsafe impl Send for Process {}
 static PROCESSES: Mutex<SlotAllocator<Arc<Mutex<Process>>>> = Mutex::new(SlotAllocator::new(None));
 
 impl Process {
-    fn create_base_process(cwd: Arc<Mutex<FileDescriptor>>) -> Arc<Mutex<Process>> {
+    fn create_base_process() -> Arc<Mutex<Process>> {
         let mut processes = PROCESSES.lock();
         assert!(processes.allocated_slots() == 0);
 
@@ -123,7 +121,6 @@ impl Process {
             ppid: 0,
             pgid: 1,
             uid: 1,
-            cwd,
             mapped_regions: Vec::new(),
             main_thread: SCHEDULER.create_user_thread(1),
             pml4: new_pml4,
@@ -150,11 +147,6 @@ impl Process {
 
     fn clear_file_descriptors(&mut self) {
         self.file_descriptors.clear();
-    }
-
-    pub fn change_cwd(&mut self, cwd: Arc<Mutex<FileDescriptor>>) {
-        // TODO: the old cwd gets dropped here right?
-        self.cwd = cwd;
     }
 
     // TODO: better name
@@ -250,20 +242,13 @@ impl Process {
         self.file_descriptors.get(fd).cloned()
     }
 
-    /// Only possible error is an invalid fd
-    pub fn get_full_path_from_dirfd(&self, dirfd: isize, path: &str) -> Result<String, ()> {
+    pub fn get_full_path_from_dirfd(&self, dirfd: usize, path: &str) -> Result<String, ()> {
+        debug!("dirfd: {:?} path: {}", dirfd, path);
         if path.starts_with('/') {
             // if the path is absolute we ignore the value of dirfd
             Ok(String::from(path))
         } else {
-            if dirfd == AT_FCWD {
-                todo!()
-            } else if dirfd < 0 {
-                return Err(());
-            };
-
-            let fd = dirfd as usize;
-            let file_lock = match self.get_fd(fd) {
+            let file_lock = match self.get_fd(dirfd) {
                 Some(f) => f,
                 None => return Err(()),
             };
@@ -300,7 +285,6 @@ impl Process {
             euid: self.euid,
             gid: self.gid,
             egid: self.egid,
-            cwd: self.cwd.clone(),
             // TODO: mapped regions?
             mapped_regions: self.mapped_regions.clone(),
             main_thread: Weak::new(),
@@ -329,7 +313,7 @@ impl Process {
     pub fn execve(&mut self, exec_path: &str, args: &[&str], envvars: &[&str]) -> Result<(), ()> {
         self.clear_file_descriptors();
         self.load_from_file(exec_path, args, envvars)?;
-        self.open_std_streams();
+        self.open_default_files("/root");
 
         Ok(())
     }
@@ -529,7 +513,7 @@ impl Process {
         Ok(())
     }
 
-    fn open_std_streams(&mut self) {
+    fn open_default_files(&mut self, cwd: &str) {
         // open console
         // TODO: proper flags
         let mut vfs = VFS.write();
@@ -550,6 +534,13 @@ impl Process {
         // stderr
         let fd = self.dup_fd(None, fd).unwrap();
         assert!(fd == 2);
+
+        let cwd_fd = vfs
+            .open(cwd, FileOpenFlags::O_RDWR)
+            .expect("Failed to open cwd");
+
+        let fd = self.new_fd(Some(3), Arc::new(Mutex::new(*cwd_fd))).unwrap();
+        assert!(fd == 3);
     }
 }
 
@@ -617,20 +608,13 @@ unsafe fn write_argv_envp(stack_bottom: u64, args: &[&str], envvars: &[&str]) ->
 pub fn load_base_process(exec_path: &str) {
     let main_thread_id: ThreadID;
 
-    {
-        let cwd = {
-            let mut vfs = VFS.write();
-            Arc::new(Mutex::new(
-                // TODO: proper flags
-                *vfs.open("/root", FileOpenFlags::empty())
-                    .expect("Failed to open /root"),
-            ))
-        };
+    const CWD: &str = "/root";
 
-        let proc_lock = Process::create_base_process(cwd);
+    {
+        let proc_lock = Process::create_base_process();
         let mut proc = proc_lock.lock();
 
-        proc.open_std_streams();
+        proc.open_default_files(CWD);
 
         main_thread_id = proc.main_thread.upgrade().unwrap().lock().id;
 

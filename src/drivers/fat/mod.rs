@@ -287,7 +287,6 @@ impl FATFileSystem {
         } as usize;
         ClusterIndex(val & 0x0FFFFFFF)
     }
-    //debug!("cluster {} -> {}", cluster.0, new_cluster.0);
 
     fn parse_short_dir_ent_filename(filename: &[u8; 11]) -> String {
         let filebase = &filename[..8];
@@ -318,7 +317,6 @@ impl FATFileSystem {
         dir_start_cluster: ClusterIndex,
         filename: &str,
     ) -> Option<DirectoryEntry> {
-        debug!("find dir ent {} {}", dir_start_cluster.0, filename);
         let p = self.partition.upgrade().unwrap();
         let mut sector_data: [u8; BLOCK_SIZE] = unsafe {
             transmute(MaybeUninit::<[MaybeUninit<u8>; BLOCK_SIZE]>::uninit().assume_init())
@@ -377,7 +375,6 @@ impl FATFileSystem {
                         temp_str.push(c as u8 as char);
                     }
 
-                    debug!("{} {}", i, temp_str);
                     long_file_name.insert_str(0, &temp_str);
                 } else {
                     let ent: &ShortDirectoryEntry = unsafe {
@@ -417,7 +414,6 @@ impl FATFileSystem {
                 }
             }
 
-            debug!("get new cluster {}", cluster.0);
             cluster = self.get_fat_entry(cluster);
         }
 

@@ -1,8 +1,6 @@
 pub mod archctl;
-pub mod chdir;
 pub mod clone;
 pub mod execve;
-pub mod getcwd;
 pub mod getpgid;
 pub mod gettimeofday;
 pub mod pid;

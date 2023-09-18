@@ -7,3 +7,4 @@ pub mod lseek;
 pub mod openat;
 pub mod read;
 pub mod write;
+pub mod fd2path;

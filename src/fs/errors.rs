@@ -11,17 +11,6 @@ pub enum FsPathError {
     ParseError(PathParseError),
 }
 
-impl Into<Errno> for FsPathError {
-    fn into(self) -> Errno {
-        match self {
-            FsPathError::NoSuchFileOrDirectory => ENOENT,
-            FsPathError::NotADirectory => ENOTDIR,
-            FsPathError::PermissionDenied => EACCES,
-            FsPathError::ParseError(err) => err.into(),
-        }
-    }
-}
-
 #[derive(Debug)]
 pub enum FsReadError {}
 
@@ -59,4 +48,23 @@ pub enum FsMountError {
     BadPath(FsPathError),
     PathAlreadyInUse,
     FileSystemInitFailed(FsInitError),
+}
+
+impl Into<Errno> for FsPathError {
+    fn into(self) -> Errno {
+        match self {
+            FsPathError::NoSuchFileOrDirectory => ENOENT,
+            FsPathError::NotADirectory => ENOTDIR,
+            FsPathError::PermissionDenied => EACCES,
+            FsPathError::ParseError(err) => err.into(),
+        }
+    }
+}
+
+impl Into<Errno> for FsStatError {
+    fn into(self) -> Errno {
+        match self {
+            FsStatError::BadPath(path) => path.into(),
+        }
+    }
 }

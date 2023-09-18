@@ -3,7 +3,7 @@ use spin::Mutex;
 
 use crate::{
     fs::{errors::FsOpenError, VFS},
-    posix::{errno::Errno, FileOpenFlags, FileOpenMode},
+    posix::{errno::{Errno, EBADF}, FileOpenFlags, FileOpenMode},
     scheduler::proc::Process,
 };
 
@@ -14,13 +14,19 @@ pub fn openat(
     flags: FileOpenFlags,
     _mode: FileOpenMode,
 ) -> Result<usize, Errno> {
+    debug!("openat {} {}", dirfd, path);
     // TODO: flags, mode
     let mut p = proc.lock();
 
     // TODO: validate path
 
-    debug!("openat {} {}", dirfd, path);
-    let full_path = match p.get_full_path_from_dirfd(dirfd, path) {
+    if dirfd < 0 {
+        return Err(EBADF);
+    }
+
+    let fd = dirfd as usize;
+
+    let full_path = match p.get_full_path_from_dirfd(fd, path) {
         Ok(path) => path,
         Err(_) => todo!(),
     };

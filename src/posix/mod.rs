@@ -3,8 +3,6 @@ use crate::fs::FileType;
 pub mod errno;
 pub mod termios;
 
-pub const AT_FCWD: isize = -100;
-
 bitflags::bitflags! {
     // TODO
     pub struct FileOpenMode: u32 {

@@ -41,7 +41,6 @@ static SYSCALL_TABLE: &[Syscall] = &[
     Syscall::new("geteuid", x86_64::syscall::proc::sys_geteuid),
     Syscall::new("getgid", x86_64::syscall::proc::sys_getgid),
     Syscall::new("getegid", x86_64::syscall::proc::sys_getegid),
-    Syscall::new("getcwd", x86_64::syscall::proc::sys_getcwd),
     Syscall::new("fcntl", x86_64::syscall::io::sys_fcntl),
     Syscall::new("ioctl", x86_64::syscall::io::sys_ioctl),
     Syscall::new("getpgid", x86_64::syscall::proc::sys_getpgid),
@@ -49,11 +48,11 @@ static SYSCALL_TABLE: &[Syscall] = &[
     Syscall::new("clone", x86_64::syscall::proc::sys_clone),
     Syscall::new("execve", x86_64::syscall::proc::sys_execve),
     Syscall::new("lseek", x86_64::syscall::io::sys_lseek),
-    Syscall::new("chdir", x86_64::syscall::proc::sys_chdir),
     Syscall::new("log", x86_64::syscall::io::sys_log),
     Syscall::new("archctl", x86_64::syscall::proc::sys_archctl),
     Syscall::new("gettimeofday", x86_64::syscall::proc::sys_gettimeofday),
     Syscall::new("pselect", x86_64::syscall::io::sys_pselect),
+    Syscall::new("fd2path", x86_64::syscall::io::sys_fd2path),
 ];
 
 #[no_mangle]
