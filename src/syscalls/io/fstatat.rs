@@ -19,9 +19,7 @@ pub fn fstatat(
 ) -> Result<(), Errno> {
     // TODO: flag
     let p = proc.lock();
-
-    let at_cwd = fd == -100;
-    if !at_cwd && fd < 0 {
+    if fd < 0 {
         return Err(EBADF);
     };
 
@@ -29,7 +27,7 @@ pub fn fstatat(
 
     match path {
         Some(path) => {
-            let full_path = p.get_full_path_from_dirfd(fd, path).unwrap();
+            let full_path = p.get_full_path_from_dirfd(Some(fd), path).unwrap();
             let mut vfs = VFS.write();
             match vfs.stat(&full_path, stat_buf) {
                 Ok(_) => Ok(()),

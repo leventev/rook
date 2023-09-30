@@ -20,11 +20,13 @@ pub fn openat(
 
     // TODO: validate path
 
-    if dirfd < 0 {
+    let fd =   if dirfd == -1 {
+        None
+    } else if dirfd > 0 {
+        Some(dirfd as usize)
+    } else {
         return Err(EBADF);
-    }
-
-    let fd = dirfd as usize;
+    };
 
     let full_path = match p.get_full_path_from_dirfd(fd, path) {
         Ok(path) => path,

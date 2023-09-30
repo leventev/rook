@@ -117,7 +117,7 @@ impl Framebuffer {
                 for col in 0..cols {
                     let mask = 1 << (7 - col);
                     if byte & mask > 0 {
-                        self.draw_pixel(xx, yy, 0xff, 0xbf, 0);
+                        self.draw_pixel(xx, yy, 0xcf, 0xcf, 0xcf);
                     } else if clear_background {
                         self.draw_pixel(xx, yy, 0, 0, 0);
                     }

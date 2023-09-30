@@ -15,6 +15,7 @@ pub fn mmap(
     fd: isize,
     off: u64,
 ) -> Result<u64, Errno> {
+    debug!("{} {} {} {} {} {}", hint, len, prot, flags, fd, off);
     if prot != 0 || flags != 0 || fd >= 0 || off != 0 {
         todo!()
     }

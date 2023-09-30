@@ -16,15 +16,13 @@ pub fn fd2path(proc: Arc<Mutex<Process>>, fd: usize, buff: &mut [u8]) -> Result<
     let vnode = vnode.lock();
 
     let path = vnode.get_path();
-    let null_terminated_len = path.len() + 1;
 
-    if buff.len() < null_terminated_len {
+    if buff.len() < path.len() {
         return Err(EINVAL);
     }
 
-    let buff = &mut buff[..null_terminated_len];
-    buff[..path.len()].copy_from_slice(path.as_bytes());
-    buff[path.len()] = b'\0';
+    let buff = &mut buff[..path.len()];
+    buff.copy_from_slice(path.as_bytes());
 
-    Ok(null_terminated_len)
+    Ok(path.len())
 }

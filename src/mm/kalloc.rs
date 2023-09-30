@@ -68,6 +68,8 @@ impl KernelAllocatorInner {
 
         let newly_allocated_size = size - self.current_size;
 
+        debug!("{} {} {} {}", newly_allocated_size, size, min_size, self.current_size);
+
         let start_virt = self.heap_end();
         let end_virt = self.heap_end() + VirtAddr::new(newly_allocated_size as u64);
         let flags = PageFlags::READ_WRITE | PageFlags::PRESENT;
@@ -93,7 +95,7 @@ impl KernelAllocatorInner {
             assert!(heap_end.get() >= current_addr);
             // extend heap when we reach the end of the heap
             if heap_end.get() == current_addr {
-                let extended = self.extend_heap(size);
+                let extended = self.extend_heap(self.current_size + size);
                 current.size = extended - core::mem::size_of::<Node>();
                 current.allocated = false;
             }

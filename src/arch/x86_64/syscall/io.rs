@@ -1,5 +1,3 @@
-use core::str::{from_utf8_unchecked, from_utf8_unchecked_mut};
-
 use alloc::{slice, sync::Arc};
 use spin::Mutex;
 

@@ -156,7 +156,7 @@ fn main_init_thread() {
 
     syscall::init();
 
-    proc::load_base_process("/bin/bash");
+    proc::load_base_process("/bin/rose");
 }
 
 #[panic_handler]

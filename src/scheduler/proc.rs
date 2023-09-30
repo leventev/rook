@@ -242,12 +242,17 @@ impl Process {
         self.file_descriptors.get(fd).cloned()
     }
 
-    pub fn get_full_path_from_dirfd(&self, dirfd: usize, path: &str) -> Result<String, ()> {
+    pub fn get_full_path_from_dirfd(&self, dirfd: Option<usize>, path: &str) -> Result<String, ()> {
         debug!("dirfd: {:?} path: {}", dirfd, path);
         if path.starts_with('/') {
             // if the path is absolute we ignore the value of dirfd
             Ok(String::from(path))
         } else {
+            let dirfd = match dirfd {
+                Some(fd) => fd,
+                None => return Err(())
+            };
+
             let file_lock = match self.get_fd(dirfd) {
                 Some(f) => f,
                 None => return Err(()),
